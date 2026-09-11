@@ -16,7 +16,7 @@ export class ProgramsController {
 
   @Get()
   get(@Param('clientId') clientId: string, @CurrentUser() user: JwtPayload) {
-    return this.programs.getForClient(user.gymId, clientId);
+    return this.programs.getForClient(user, clientId);
   }
 
   @Put()

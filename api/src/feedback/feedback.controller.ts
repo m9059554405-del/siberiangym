@@ -13,7 +13,7 @@ export class FeedbackController {
 
   @Get()
   find(@Param('clientId') clientId: string, @CurrentUser() user: JwtPayload) {
-    return this.feedback.findForClient(user.gymId, clientId);
+    return this.feedback.findForClient(user, clientId);
   }
 
   @Post()

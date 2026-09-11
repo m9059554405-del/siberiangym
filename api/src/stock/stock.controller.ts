@@ -17,6 +17,7 @@ import type { JwtPayload } from '../auth/auth.service';
 export class StockController {
   constructor(private readonly stock: StockService) {}
 
+  @Roles(Role.CEO, Role.STAFF, Role.CLIENT)
   @Get('catalog')
   listCatalog(@CurrentUser() user: JwtPayload) {
     return this.stock.listCatalog(user.gymId);
@@ -25,6 +26,12 @@ export class StockController {
   @Post('catalog')
   createCatalogItem(@Body() dto: CreateCatalogItemDto, @CurrentUser() user: JwtPayload) {
     return this.stock.createCatalogItem(user, dto);
+  }
+
+  @Roles(Role.CLIENT)
+  @Post('purchase')
+  purchase(@Body('catalogItemId') catalogItemId: string, @CurrentUser() user: JwtPayload) {
+    return this.stock.purchase(user, catalogItemId);
   }
 
   @Get('summary')

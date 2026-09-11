@@ -19,6 +19,7 @@ import { LockersModule } from './lockers/lockers.module';
 import { ClubPostsModule } from './club-posts/club-posts.module';
 import { FeedbackModule } from './feedback/feedback.module';
 import { HealthModule } from './health/health.module';
+import { PricingModule } from './pricing/pricing.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { HealthModule } from './health/health.module';
     ClubPostsModule,
     FeedbackModule,
     HealthModule,
+    PricingModule,
   ],
 })
 export class AppModule {}

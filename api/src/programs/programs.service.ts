@@ -11,9 +11,12 @@ export class ProgramsService {
     private readonly activityLog: ActivityLogService,
   ) {}
 
-  async getForClient(gymId: string, clientId: string) {
-    const client = await this.prisma.client.findFirst({ where: { id: clientId, gymId } });
+  async getForClient(actor: JwtPayload, clientId: string) {
+    const client = await this.prisma.client.findFirst({ where: { id: clientId, gymId: actor.gymId } });
     if (!client) throw new NotFoundException('Клиент не найден');
+    if (actor.role === 'CLIENT' && client.userId !== actor.sub) {
+      throw new ForbiddenException('Можно смотреть только свою программу');
+    }
     return this.prisma.program.findUnique({
       where: { clientId },
       include: { days: { orderBy: { order: 'asc' }, include: { entries: { orderBy: { order: 'asc' } } } } },

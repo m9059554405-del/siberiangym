@@ -12,7 +12,11 @@ export class TrainersService {
   ) {}
 
   findAll(gymId: string) {
-    return this.prisma.trainer.findMany({ where: { gymId }, orderBy: { createdAt: 'asc' } });
+    return this.prisma.trainer.findMany({
+      where: { gymId },
+      include: { workHours: true, credentials: true, competitionPhotos: true },
+      orderBy: { createdAt: 'asc' },
+    });
   }
 
   async findOne(gymId: string, id: string) {

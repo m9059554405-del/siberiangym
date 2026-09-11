@@ -20,6 +20,12 @@ export class WorkoutLogsController {
   }
 
   @Roles(Role.CLIENT)
+  @Get('workout-logs/mine')
+  listOwn(@CurrentUser() user: JwtPayload) {
+    return this.workoutLogs.listOwn(user);
+  }
+
+  @Roles(Role.CLIENT)
   @Post('workout-logs')
   log(@Body() dto: LogWorkoutDto, @CurrentUser() user: JwtPayload) {
     return this.workoutLogs.log(user, dto);

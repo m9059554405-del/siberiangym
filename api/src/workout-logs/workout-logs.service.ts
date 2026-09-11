@@ -15,6 +15,12 @@ export class WorkoutLogsService {
     });
   }
 
+  async listOwn(actor: JwtPayload) {
+    const client = await this.prisma.client.findUnique({ where: { userId: actor.sub } });
+    if (!client) throw new ForbiddenException('У пользователя нет карточки клиента');
+    return this.listForClient(actor.gymId, client.id);
+  }
+
   async log(actor: JwtPayload, dto: LogWorkoutDto) {
     const client = await this.prisma.client.findUnique({ where: { userId: actor.sub } });
     if (!client) throw new ForbiddenException('У пользователя нет карточки клиента');

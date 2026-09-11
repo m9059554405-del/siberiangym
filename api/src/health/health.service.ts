@@ -19,6 +19,11 @@ export class HealthService {
     return this.prisma.progressPhoto.findMany({ where: { clientId }, orderBy: { date: 'desc' } });
   }
 
+  async listOwnProgressPhotos(actor: JwtPayload) {
+    const clientId = await resolveOwnClientId(this.prisma, actor);
+    return this.listProgressPhotos(clientId);
+  }
+
   async addProgressPhoto(actor: JwtPayload, dto: AddProgressPhotoDto) {
     const clientId = await resolveOwnClientId(this.prisma, actor);
     return this.prisma.progressPhoto.create({ data: { clientId, ...dto } });
@@ -26,6 +31,11 @@ export class HealthService {
 
   listMeasurements(clientId: string) {
     return this.prisma.measurement.findMany({ where: { clientId }, orderBy: { date: 'asc' } });
+  }
+
+  async listOwnMeasurements(actor: JwtPayload) {
+    const clientId = await resolveOwnClientId(this.prisma, actor);
+    return this.listMeasurements(clientId);
   }
 
   async addMeasurement(actor: JwtPayload, dto: AddMeasurementDto) {

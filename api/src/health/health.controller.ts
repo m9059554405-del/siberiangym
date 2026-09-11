@@ -20,6 +20,12 @@ export class HealthController {
   }
 
   @Roles(Role.CLIENT)
+  @Get('progress-photos/mine')
+  listOwnProgressPhotos(@CurrentUser() user: JwtPayload) {
+    return this.health.listOwnProgressPhotos(user);
+  }
+
+  @Roles(Role.CLIENT)
   @Post('progress-photos')
   addProgressPhoto(@Body() dto: AddProgressPhotoDto, @CurrentUser() user: JwtPayload) {
     return this.health.addProgressPhoto(user, dto);
@@ -29,6 +35,12 @@ export class HealthController {
   @Get('clients/:clientId/measurements')
   listMeasurements(@Param('clientId') clientId: string) {
     return this.health.listMeasurements(clientId);
+  }
+
+  @Roles(Role.CLIENT)
+  @Get('measurements/mine')
+  listOwnMeasurements(@CurrentUser() user: JwtPayload) {
+    return this.health.listOwnMeasurements(user);
   }
 
   @Roles(Role.CLIENT)

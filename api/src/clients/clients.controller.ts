@@ -21,9 +21,12 @@ export class ClientsController {
     return this.clients.findAll(user.gymId);
   }
 
-  // Доступ к конкретной карточке для CLIENT/TRAINER ограничивается уже
-  // внутри сервиса при действиях; чтение отдельной карточки для них будет
-  // сужено в следующей итерации (сейчас достаточно для CEO/STAFF).
+  @Roles(Role.CLIENT)
+  @Get('me')
+  findMe(@CurrentUser() user: JwtPayload) {
+    return this.clients.findMe(user);
+  }
+
   @Roles(Role.CEO, Role.STAFF)
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentUser() user: JwtPayload) {

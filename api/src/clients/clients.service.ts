@@ -55,6 +55,17 @@ export class ClientsService {
     return client;
   }
 
+  // Собственная карточка клиента — резолвится по userId из токена, а не по
+  // параметру запроса, чтобы клиент не мог подставить чужой id.
+  async findMe(actor: JwtPayload) {
+    const client = await this.prisma.client.findUnique({
+      where: { userId: actor.sub },
+      include: { membership: true, trainer: true, formatHistory: true },
+    });
+    if (!client) throw new NotFoundException('У пользователя нет карточки клиента');
+    return client;
+  }
+
   // CEO/STAFF могут управлять любым клиентом зала. Сам клиент — только
   // своей собственной карточкой (используется в self-service действиях
   // вроде смены тарифа из личного кабинета).
