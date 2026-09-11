@@ -42,8 +42,11 @@ export class AuthService {
 
   async createUser(gymId: string, email: string, password: string, role: Role, phone?: string) {
     const passwordHash = await this.hashPassword(password);
+    // select без passwordHash — хэш пароля никогда не должен уходить в ответ API,
+    // даже в захешированном виде.
     return this.prisma.user.create({
       data: { gymId, email, phone, passwordHash, role },
+      select: { id: true, gymId: true, email: true, phone: true, role: true, isActive: true, createdAt: true },
     });
   }
 }
