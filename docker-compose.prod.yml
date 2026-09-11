@@ -1,0 +1,54 @@
+# Продакшн-развёртывание одним docker compose на VPS: Postgres + API + web
+# (nginx). Домен и HTTPS — отдельно, когда определится домен (см. README):
+# проще всего поставить Caddy или nginx-хоста с certbot перед портом 80
+# сервиса web, ничего внутри этого файла менять не придётся.
+#
+# Использование:
+#   cp .env.prod.example .env.prod   # и заполнить реальными значениями
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: siberiangym
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: siberiangym
+    volumes:
+      - siberiangym_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U siberiangym"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ./api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://siberiangym:${POSTGRES_PASSWORD}@postgres:5432/siberiangym
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN_SECONDS: 604800
+      PORT: 3000
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-SiberianGym <no-reply@siberiangym.ru>}
+      SEED_CEO_EMAIL: ${SEED_CEO_EMAIL:-ceo@siberiangym.ru}
+      SEED_CEO_PASSWORD: ${SEED_CEO_PASSWORD}
+
+  web:
+    build: ./web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+
+volumes:
+  siberiangym_pg_data:
