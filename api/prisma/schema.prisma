@@ -1,0 +1,863 @@
+// Схема базы данных SiberianGym.
+// Перенесена из модели демо-версии (project_gym/src/data/types.ts) в реляционный вид,
+// плюс добавлены: Gym (арендатор — сейчас один зал, но структура готова под несколько),
+// User (реальная авторизация), Membership/StockBatch и т.д. как отдельные таблицы.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// --- Арендатор (зал) ---
+// Один зал сейчас (SiberianGym), но у каждой таблицы ниже есть gymId —
+// это значит, что добавить второй зал в будущем = создать новую строку Gym,
+// а не переделывать структуру базы.
+model Gym {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  users               User[]
+  clients             Client[]
+  trainers            Trainer[]
+  exercises           Exercise[]
+  groupClasses        GroupClass[]
+  personalSlots       PersonalSlot[]
+  lockers             Locker[]
+  catalogItems        CatalogItem[]
+  transactions        Transaction[]
+  clubPosts           ClubPost[]
+  stockBatches        StockBatch[]
+  stockWriteoffs      StockWriteoff[]
+  stockReceipts       StockReceipt[]
+  inventoryCounts     InventoryCount[]
+  equipment           Equipment[]
+  cleaningChecklists  CleaningChecklist[]
+  directorMessages    DirectorMessage[]
+  reportOffers        ReportOffer[]
+  activityLogEntries  ActivityLogEntry[]
+  outreachNotes       OutreachNote[]
+  pricing             MembershipPricing?
+
+  @@map("gyms")
+}
+
+// --- Авторизация ---
+
+enum Role {
+  CLIENT
+  TRAINER
+  CEO
+  STAFF // "Администратор" в демо-версии — операционная роль (ресепшн/склад/ППР)
+}
+
+// Учётная запись для входа. НЕ хранит бизнес-данные клиента/тренера —
+// та информация лежит в Client/Trainer и связана через userId (необязательно,
+// т.к. администратор может завести карточку клиента до того, как у него
+// появится доступ в личный кабинет).
+model User {
+  id           String   @id @default(cuid())
+  gymId        String   @map("gym_id")
+  gym          Gym      @relation(fields: [gymId], references: [id])
+  email        String?  @unique
+  phone        String?  @unique
+  passwordHash String   @map("password_hash")
+  role         Role
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  clientProfile  Client?
+  trainerProfile Trainer?
+
+  @@index([gymId])
+  @@map("users")
+}
+
+// --- Клиент ---
+
+enum Gender {
+  M
+  F
+}
+
+enum ClientFormat {
+  PERSONAL
+  GROUP
+  SELF
+}
+
+enum Tariff {
+  BASIC
+  COACHING
+  INDIVIDUAL
+}
+
+model Client {
+  id        String       @id @default(cuid())
+  gymId     String       @map("gym_id")
+  gym       Gym          @relation(fields: [gymId], references: [id])
+  userId    String?      @unique @map("user_id")
+  user      User?        @relation(fields: [userId], references: [id])
+
+  name            String
+  gender          Gender
+  avatarHue       Int          @default(210) @map("avatar_hue")
+  trainerId       String?      @map("trainer_id")
+  trainer         Trainer?     @relation(fields: [trainerId], references: [id])
+  format          ClientFormat @default(SELF)
+  tariff          Tariff?
+  joinedAt        DateTime     @map("joined_at")
+  birthday        DateTime?    @db.Date
+  phone           String?
+  email           String?
+  profilePhotoUrl String?      @map("profile_photo_url")
+  splitPlan       String[]     @map("split_plan")
+
+  membership       Membership?
+  formatHistory    ClientFormatHistoryEntry[]
+  programs         Program[]
+  workoutLogs      WorkoutLogEntry[]
+  progressPhotos   ProgressPhoto[]
+  measurements     Measurement[]
+  cycleLogs        CycleLog[]
+  feedbackMessages FeedbackMessage[]
+  directorMessages DirectorMessage[]
+  outreachNotes    OutreachNote[]
+  transactions     Transaction[]
+  groupClassBookings GroupClassBooking[]
+  personalSlots    PersonalSlot[]
+  lockerRentals    Locker[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([gymId])
+  @@index([trainerId])
+  @@map("clients")
+}
+
+enum MembershipType {
+  SINGLE
+  MONTHLY
+  PACK10
+  PACK20
+}
+
+enum MembershipStatus {
+  ACTIVE
+  EXPIRED
+  FROZEN
+}
+
+// Текущий абонемент клиента — всегда один актуальный ряд на клиента
+// (история смен абонемента не нужна отдельной таблицей: каждая покупка
+// просто перезаписывает эти поля, как и в демо-версии).
+model Membership {
+  id           String            @id @default(cuid())
+  clientId     String            @unique @map("client_id")
+  client       Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  type         MembershipType
+  purchasedAt  DateTime          @map("purchased_at")
+  expiresAt    DateTime?         @db.Date @map("expires_at")
+  visitsTotal  Int?              @map("visits_total")
+  visitsLeft   Int?              @map("visits_left")
+  status       MembershipStatus  @default(ACTIVE)
+
+  @@map("memberships")
+}
+
+// История смены тренера/формата — нужна тренеру и в профиле клиента,
+// чтобы видеть "кто у кого тренировался и когда".
+model ClientFormatHistoryEntry {
+  id        String       @id @default(cuid())
+  clientId  String       @map("client_id")
+  client    Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  trainerId String?      @map("trainer_id")
+  format    ClientFormat
+  from      DateTime     @db.Date
+  to        DateTime?    @db.Date
+  reason    String?
+
+  @@index([clientId])
+  @@map("client_format_history")
+}
+
+// --- Тренер ---
+
+model Trainer {
+  id             String   @id @default(cuid())
+  gymId          String   @map("gym_id")
+  gym            Gym      @relation(fields: [gymId], references: [id])
+  userId         String?  @unique @map("user_id")
+  user           User?    @relation(fields: [userId], references: [id])
+
+  name                String
+  avatarHue           Int      @default(210) @map("avatar_hue")
+  specialization      String
+  bio                 String?
+  fullBio             String?  @map("full_bio")
+  experienceYears     Int      @default(0) @map("experience_years")
+  personalSessionPrice Int     @map("personal_session_price")
+  externalUrl         String?  @map("external_url")
+
+  clients        Client[]
+  workHours      TrainerWorkHour[]
+  credentials    TrainerCredential[]
+  competitionPhotos TrainerCompetitionPhoto[]
+  groupClasses   GroupClass[]
+  personalSlots  PersonalSlot[]
+  transactions   Transaction[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([gymId])
+  @@map("trainers")
+}
+
+model TrainerWorkHour {
+  id        String  @id @default(cuid())
+  trainerId String  @map("trainer_id")
+  trainer   Trainer @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  day       Int // 0=понедельник ... 6=воскресенье
+  startHour Int     @map("start_hour")
+  endHour   Int     @map("end_hour")
+
+  @@map("trainer_work_hours")
+}
+
+model TrainerCredential {
+  id        String  @id @default(cuid())
+  trainerId String  @map("trainer_id")
+  trainer   Trainer @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  title     String
+  issuedBy  String? @map("issued_by")
+  year      Int?
+
+  @@map("trainer_credentials")
+}
+
+model TrainerCompetitionPhoto {
+  id        String  @id @default(cuid())
+  trainerId String  @map("trainer_id")
+  trainer   Trainer @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  url       String
+  caption   String?
+
+  @@map("trainer_competition_photos")
+}
+
+// --- Упражнения и программы тренировок ---
+
+enum MuscleGroup {
+  CHEST
+  BACK
+  LEGS
+  SHOULDERS
+  ARMS
+  ABS
+}
+
+model Exercise {
+  id           String      @id @default(cuid())
+  gymId        String      @map("gym_id")
+  gym          Gym         @relation(fields: [gymId], references: [id])
+  name         String
+  muscleGroup  MuscleGroup @map("muscle_group")
+  defaultSets  Int         @map("default_sets")
+  defaultReps  String      @map("default_reps")
+  defaultLoad  String      @map("default_load")
+  technique    String?
+  equipment    String?
+
+  @@index([gymId])
+  @@map("exercises")
+}
+
+model Program {
+  id          String   @id @default(cuid())
+  clientId    String   @map("client_id")
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  assignedBy  String   @map("assigned_by") // 'trainer' | 'self'
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  days ProgramDay[]
+
+  @@index([clientId])
+  @@map("programs")
+}
+
+model ProgramDay {
+  id        String   @id @default(cuid())
+  programId String   @map("program_id")
+  program   Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  label     String
+  order     Int      @default(0)
+
+  entries ProgramExerciseEntry[]
+
+  @@map("program_days")
+}
+
+model ProgramExerciseEntry {
+  id           String     @id @default(cuid())
+  programDayId String     @map("program_day_id")
+  programDay   ProgramDay @relation(fields: [programDayId], references: [id], onDelete: Cascade)
+  exerciseId   String     @map("exercise_id")
+  sets         Int
+  reps         String
+  load         String
+  order        Int        @default(0)
+
+  @@map("program_exercise_entries")
+}
+
+// --- Логи тренировок ---
+
+enum WorkoutStatus {
+  COMPLETED
+  PARTIAL
+  MISSED
+}
+
+model WorkoutLogEntry {
+  id       String        @id @default(cuid())
+  clientId String        @map("client_id")
+  client   Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  date     DateTime      @db.Date
+  dayLabel String        @map("day_label")
+  status   WorkoutStatus
+
+  exercises WorkoutExerciseLog[]
+
+  @@index([clientId])
+  @@map("workout_log_entries")
+}
+
+enum EffortLevel {
+  WARMUP
+  EASY
+  MEDIUM
+  HARD
+  VERY_HARD
+}
+
+model WorkoutExerciseLog {
+  id         String          @id @default(cuid())
+  logId      String          @map("log_id")
+  log        WorkoutLogEntry @relation(fields: [logId], references: [id], onDelete: Cascade)
+  exerciseId String          @map("exercise_id")
+
+  sets WorkoutSetLog[]
+
+  @@map("workout_exercise_logs")
+}
+
+model WorkoutSetLog {
+  id          String              @id @default(cuid())
+  exerciseLogId String            @map("exercise_log_id")
+  exerciseLog WorkoutExerciseLog  @relation(fields: [exerciseLogId], references: [id], onDelete: Cascade)
+  reps        String
+  load        String
+  completed   Boolean
+  effort      EffortLevel?
+  restSeconds Int?                @map("rest_seconds")
+
+  @@map("workout_set_logs")
+}
+
+// --- Групповые занятия и персональные слоты ---
+
+model GroupClass {
+  id        String   @id @default(cuid())
+  gymId     String   @map("gym_id")
+  gym       Gym      @relation(fields: [gymId], references: [id])
+  type      String // напр. "Кроссфит-микс" — справочник ведётся на уровне приложения, не enum
+  trainerId String   @map("trainer_id")
+  trainer   Trainer  @relation(fields: [trainerId], references: [id])
+  zone      String
+  date      DateTime @db.Date
+  start     String // "HH:MM"
+  end       String
+  capacity  Int
+
+  bookings GroupClassBooking[]
+
+  @@index([gymId])
+  @@index([trainerId])
+  @@map("group_classes")
+}
+
+model GroupClassBooking {
+  id           String     @id @default(cuid())
+  groupClassId String     @map("group_class_id")
+  groupClass   GroupClass @relation(fields: [groupClassId], references: [id], onDelete: Cascade)
+  clientId     String     @map("client_id")
+  client       Client     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  bookedAt     DateTime   @default(now()) @map("booked_at")
+
+  @@unique([groupClassId, clientId])
+  @@map("group_class_bookings")
+}
+
+enum SlotStatus {
+  FREE
+  BOOKED
+  PAST_COMPLETED
+  PAST_MISSED
+}
+
+model PersonalSlot {
+  id        String     @id @default(cuid())
+  gymId     String     @map("gym_id")
+  gym       Gym        @relation(fields: [gymId], references: [id])
+  trainerId String     @map("trainer_id")
+  trainer   Trainer    @relation(fields: [trainerId], references: [id])
+  date      DateTime   @db.Date
+  start     String
+  end       String
+  clientId  String?    @map("client_id")
+  client    Client?    @relation(fields: [clientId], references: [id])
+  status    SlotStatus @default(FREE)
+
+  @@index([gymId])
+  @@index([trainerId])
+  @@map("personal_slots")
+}
+
+// --- Шкафчики ---
+
+enum LockerStatus {
+  FREE
+  RENTED
+}
+
+model Locker {
+  id           String       @id @default(cuid())
+  gymId        String       @map("gym_id")
+  gym          Gym          @relation(fields: [gymId], references: [id])
+  number       Int
+  status       LockerStatus @default(FREE)
+  rentedBy     String?      @map("rented_by")
+  client       Client?      @relation(fields: [rentedBy], references: [id])
+  rentedUntil  DateTime?    @db.Date @map("rented_until")
+  pricePerDay  Int          @map("price_per_day")
+
+  @@index([gymId])
+  @@map("lockers")
+}
+
+// --- Магазин / каталог и продажи клиентам ---
+
+enum CatalogCategory {
+  FOOD
+  WATER
+}
+
+model CatalogItem {
+  id       String          @id @default(cuid())
+  gymId    String          @map("gym_id")
+  gym      Gym             @relation(fields: [gymId], references: [id])
+  name     String
+  category CatalogCategory
+  price    Int
+  emoji    String
+
+  stockBatches   StockBatch[]
+  stockWriteoffs StockWriteoff[]
+  stockReceipts  StockReceipt[]
+
+  @@index([gymId])
+  @@map("catalog_items")
+}
+
+// --- Финансы ---
+
+enum TransactionCategory {
+  MEMBERSHIP
+  PERSONAL
+  GROUP
+  ANCILLARY
+}
+
+model Transaction {
+  id          String              @id @default(cuid())
+  gymId       String              @map("gym_id")
+  gym         Gym                 @relation(fields: [gymId], references: [id])
+  date        DateTime            @default(now())
+  amount      Int
+  category    TransactionCategory
+  clientId    String              @map("client_id")
+  client      Client              @relation(fields: [clientId], references: [id])
+  trainerId   String?             @map("trainer_id")
+  trainer     Trainer?            @relation(fields: [trainerId], references: [id])
+  description String
+
+  @@index([gymId])
+  @@index([clientId])
+  @@map("transactions")
+}
+
+// Цены на абонементы и разовые услуги — раньше было захардкожено в
+// демо-версии, теперь настраивается на уровне зала.
+model MembershipPricing {
+  id             String @id @default(cuid())
+  gymId          String @unique @map("gym_id")
+  gym            Gym    @relation(fields: [gymId], references: [id])
+  single         Int
+  monthly        Int
+  pack10         Int
+  pack20         Int
+  personalSingle Int    @map("personal_single")
+  personalPack5  Int    @map("personal_pack5")
+  groupSingle    Int    @map("group_single")
+  groupMonthly   Int    @map("group_monthly")
+
+  @@map("membership_pricing")
+}
+
+// --- Новости клуба ---
+
+enum ClubPostType {
+  NEWS
+  PHOTO
+  VIDEO
+  ACHIEVEMENT
+}
+
+model ClubPost {
+  id         String       @id @default(cuid())
+  gymId      String       @map("gym_id")
+  gym        Gym          @relation(fields: [gymId], references: [id])
+  date       DateTime     @default(now())
+  authorName String       @map("author_name")
+  authorRole String       @map("author_role")
+  type       ClubPostType
+  title      String
+  text       String
+  likes      Int          @default(0)
+
+  media ClubPostMedia[]
+
+  @@index([gymId])
+  @@map("club_posts")
+}
+
+model ClubPostMedia {
+  id      String   @id @default(cuid())
+  postId  String   @map("post_id")
+  post    ClubPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  kind    String // 'photo' | 'video'
+  url     String
+  caption String?
+
+  @@map("club_post_media")
+}
+
+// --- Обратная связь клиент ↔ тренер ---
+
+model FeedbackMessage {
+  id       String   @id @default(cuid())
+  clientId String   @map("client_id")
+  client   Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  from     String // 'client' | 'trainer'
+  date     DateTime @default(now())
+  text     String
+
+  @@index([clientId])
+  @@map("feedback_messages")
+}
+
+// --- Фото прогресса ---
+
+enum ProgressPhotoKind {
+  FOOD
+  BODY
+}
+
+enum MealType {
+  BREAKFAST
+  LUNCH
+  DINNER
+  OTHER
+}
+
+model ProgressPhoto {
+  id       String            @id @default(cuid())
+  clientId String            @map("client_id")
+  client   Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  date     DateTime          @default(now())
+  kind     ProgressPhotoKind
+  mealType MealType?         @map("meal_type")
+  url      String
+  caption  String?
+
+  @@index([clientId])
+  @@map("progress_photos")
+}
+
+// --- Замеры ---
+
+model Measurement {
+  id               String   @id @default(cuid())
+  clientId         String   @map("client_id")
+  client           Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  date             DateTime @default(now())
+  weightKg         Float?   @map("weight_kg")
+  bodyFatPercent   Float?   @map("body_fat_percent")
+  muscleMassKg     Float?   @map("muscle_mass_kg")
+  waterPercent     Float?   @map("water_percent")
+  visceralFat      Float?   @map("visceral_fat")
+  chestCm          Float?   @map("chest_cm")
+  waistCm          Float?   @map("waist_cm")
+  hipsCm           Float?   @map("hips_cm")
+
+  @@index([clientId])
+  @@map("measurements")
+}
+
+// --- Женский календарь ---
+
+model CycleLog {
+  id       String   @id @default(cuid())
+  clientId String   @map("client_id")
+  client   Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  date     DateTime @db.Date
+
+  @@index([clientId])
+  @@map("cycle_logs")
+}
+
+// --- Склад ---
+
+enum StockLocation {
+  SHELF
+  WAREHOUSE
+}
+
+model StockBatch {
+  id            String        @id @default(cuid())
+  gymId         String        @map("gym_id")
+  gym           Gym           @relation(fields: [gymId], references: [id])
+  catalogItemId String        @map("catalog_item_id")
+  catalogItem   CatalogItem   @relation(fields: [catalogItemId], references: [id])
+  location      StockLocation
+  quantity      Int
+  receivedAt    DateTime      @db.Date @map("received_at")
+  expiresAt     DateTime      @db.Date @map("expires_at")
+
+  @@index([gymId])
+  @@index([catalogItemId])
+  @@map("stock_batches")
+}
+
+enum WriteoffReason {
+  EXPIRED
+  DAMAGED
+  SOLD_MANUAL
+  USED_INTERNALLY
+  LOST
+  OTHER
+}
+
+model StockWriteoff {
+  id            String        @id @default(cuid())
+  gymId         String        @map("gym_id")
+  gym           Gym           @relation(fields: [gymId], references: [id])
+  catalogItemId String        @map("catalog_item_id")
+  catalogItem   CatalogItem   @relation(fields: [catalogItemId], references: [id])
+  location      StockLocation
+  quantity      Int
+  reason        WriteoffReason
+  comment       String?
+  date          DateTime      @default(now())
+  authorId      String        @map("author_id")
+
+  @@index([gymId])
+  @@map("stock_writeoffs")
+}
+
+model StockReceipt {
+  id            String        @id @default(cuid())
+  gymId         String        @map("gym_id")
+  gym           Gym           @relation(fields: [gymId], references: [id])
+  catalogItemId String        @map("catalog_item_id")
+  catalogItem   CatalogItem   @relation(fields: [catalogItemId], references: [id])
+  location      StockLocation
+  quantity      Int
+  date          DateTime      @default(now())
+  authorId      String        @map("author_id")
+
+  @@index([gymId])
+  @@map("stock_receipts")
+}
+
+model InventoryCount {
+  id        String   @id @default(cuid())
+  gymId     String   @map("gym_id")
+  gym       Gym      @relation(fields: [gymId], references: [id])
+  date      DateTime @default(now())
+  authorId  String   @map("author_id")
+
+  entries InventoryCountEntry[]
+
+  @@index([gymId])
+  @@map("inventory_counts")
+}
+
+model InventoryCountEntry {
+  id               String         @id @default(cuid())
+  inventoryCountId String         @map("inventory_count_id")
+  inventoryCount   InventoryCount @relation(fields: [inventoryCountId], references: [id], onDelete: Cascade)
+  catalogItemId    String         @map("catalog_item_id")
+  location         StockLocation
+  systemQty        Int            @map("system_qty")
+  countedQty       Int            @map("counted_qty")
+
+  @@map("inventory_count_entries")
+}
+
+// --- Оборудование и ППР ---
+
+enum EquipmentCategory {
+  LIGHTING
+  RESTROOMS
+  LOCKERS
+  AC
+  FRIDGES
+  GYM_EQUIPMENT
+}
+
+model Equipment {
+  id               String            @id @default(cuid())
+  gymId            String            @map("gym_id")
+  gym              Gym               @relation(fields: [gymId], references: [id])
+  name             String
+  category         EquipmentCategory
+  zone             String
+  responsibleName  String            @map("responsible_name")
+  lastServiceDate  DateTime          @db.Date @map("last_service_date")
+  nextServiceDate  DateTime          @db.Date @map("next_service_date")
+  intervalDays     Int               @map("interval_days")
+  warrantyUntil    DateTime?         @db.Date @map("warranty_until")
+
+  @@index([gymId])
+  @@map("equipment")
+}
+
+// --- Клининг ---
+
+enum CleaningArea {
+  FLOOR
+  LIGHTING
+  SURFACES
+  MIRRORS
+  RESTROOMS
+  LOCKERS
+  WINDOWS
+}
+
+model CleaningChecklist {
+  id              String   @id @default(cuid())
+  gymId           String   @map("gym_id")
+  gym             Gym      @relation(fields: [gymId], references: [id])
+  date            DateTime @db.Date
+  responsibleName String   @map("responsible_name")
+
+  items CleaningChecklistItem[]
+
+  @@index([gymId])
+  @@map("cleaning_checklists")
+}
+
+model CleaningChecklistItem {
+  id          String            @id @default(cuid())
+  checklistId String            @map("checklist_id")
+  checklist   CleaningChecklist @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+  area        CleaningArea
+  done        Boolean           @default(false)
+
+  @@unique([checklistId, area])
+  @@map("cleaning_checklist_items")
+}
+
+// --- Обратная связь директору ---
+
+model DirectorMessage {
+  id                 String    @id @default(cuid())
+  gymId              String    @map("gym_id")
+  gym                Gym       @relation(fields: [gymId], references: [id])
+  clientId           String    @map("client_id")
+  client             Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  date               DateTime  @default(now())
+  text               String
+  reply              String?
+  repliedAt          DateTime? @map("replied_at")
+  replySeenByClient  Boolean   @default(true) @map("reply_seen_by_client")
+
+  @@index([gymId])
+  @@map("director_messages")
+}
+
+// --- Предложения для рассылки ---
+
+enum OfferAudience {
+  ALL
+  EXPIRING_SOON
+  TOP_PERFORMERS
+}
+
+model ReportOffer {
+  id        String        @id @default(cuid())
+  gymId     String        @map("gym_id")
+  gym       Gym           @relation(fields: [gymId], references: [id])
+  title     String
+  text      String
+  audience  OfferAudience
+  active    Boolean       @default(true)
+  createdAt DateTime      @default(now()) @map("created_at")
+
+  @@index([gymId])
+  @@map("report_offers")
+}
+
+// --- Журнал изменений (аудит для CEO) ---
+
+model ActivityLogEntry {
+  id         String   @id @default(cuid())
+  gymId      String   @map("gym_id")
+  gym        Gym      @relation(fields: [gymId], references: [id])
+  date       DateTime @default(now())
+  actorId    String   @map("actor_id")
+  actorRole  Role     @map("actor_role")
+  actorName  String   @map("actor_name")
+  action     String
+  target     String
+  details    String
+
+  @@index([gymId])
+  @@index([date])
+  @@map("activity_log_entries")
+}
+
+// --- Обзвон клиентов с истёкшим абонементом ---
+
+model OutreachNote {
+  id         String   @id @default(cuid())
+  gymId      String   @map("gym_id")
+  gym        Gym      @relation(fields: [gymId], references: [id])
+  clientId   String   @map("client_id")
+  client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  called     Boolean
+  reason     String
+  date       DateTime @default(now())
+  authorId   String   @map("author_id")
+  authorName String   @map("author_name")
+
+  @@index([gymId])
+  @@map("outreach_notes")
+}
