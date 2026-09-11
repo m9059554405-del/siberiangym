@@ -21,11 +21,13 @@ import { FeedbackModule } from './feedback/feedback.module';
 import { HealthModule } from './health/health.module';
 import { PricingModule } from './pricing/pricing.module';
 import { TransactionsModule } from './transactions/transactions.module';
+import { EmailModule } from './email/email.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
+    EmailModule,
     AuthModule,
     ActivityLogModule,
     ClientsModule,

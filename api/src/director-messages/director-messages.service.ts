@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActivityLogService } from '../activity-log/activity-log.service';
+import { EmailService } from '../email/email.service';
 import type { JwtPayload } from '../auth/auth.service';
 
 @Injectable()
@@ -8,6 +9,7 @@ export class DirectorMessagesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly activityLog: ActivityLogService,
+    private readonly email: EmailService,
   ) {}
 
   findAll(gymId: string) {
@@ -43,6 +45,11 @@ export class DirectorMessagesService {
     });
 
     await this.activityLog.log(actor, 'Ответил на обращение клиента', message.client.name, reply);
+    await this.email.send(
+      message.client.email,
+      'Директор клуба ответил на ваше обращение — SiberianGym',
+      `Здравствуйте, ${message.client.name}!\n\nВаше обращение: «${message.text}»\n\nОтвет директора: ${reply}`,
+    );
     return updated;
   }
 

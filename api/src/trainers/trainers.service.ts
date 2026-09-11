@@ -5,6 +5,7 @@ import { CreateLoginDto } from './dto/create-login.dto';
 import type { JwtPayload } from '../auth/auth.service';
 import { ActivityLogService } from '../activity-log/activity-log.service';
 import { AuthService } from '../auth/auth.service';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class TrainersService {
@@ -12,6 +13,7 @@ export class TrainersService {
     private readonly prisma: PrismaService,
     private readonly activityLog: ActivityLogService,
     private readonly auth: AuthService,
+    private readonly email: EmailService,
   ) {}
 
   async findMe(actor: JwtPayload) {
@@ -39,6 +41,11 @@ export class TrainersService {
     const user = await this.auth.createUser(actor.gymId, dto.email, dto.password, 'TRAINER');
     await this.prisma.trainer.update({ where: { id: trainerId }, data: { userId: user.id } });
     await this.activityLog.log(actor, 'Выдал доступ в приложение', trainer.name, dto.email);
+    await this.email.send(
+      dto.email,
+      'Доступ в приложение SiberianGym',
+      `Здравствуйте, ${trainer.name}!\n\nВам открыт доступ в личный кабинет SiberianGym.\nEmail для входа: ${dto.email}\nПароль: ${dto.password}\n\nРекомендуем сменить пароль после первого входа.`,
+    );
     return { ok: true };
   }
 

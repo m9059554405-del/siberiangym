@@ -7,6 +7,7 @@ import { UpdateClientDto } from './dto/update-client.dto';
 import { CreateLoginDto } from './dto/create-login.dto';
 import { TARIFF_NAME, TARIFF_PRICE } from './tariffs.const';
 import { AuthService } from '../auth/auth.service';
+import { EmailService } from '../email/email.service';
 import type { JwtPayload } from '../auth/auth.service';
 
 const VALIDITY_DAYS: Record<MembershipType, number | null> = {
@@ -39,6 +40,7 @@ export class ClientsService {
     private readonly prisma: PrismaService,
     private readonly activityLog: ActivityLogService,
     private readonly auth: AuthService,
+    private readonly email: EmailService,
   ) {}
 
   // Выдаёт клиенту доступ в личный кабинет — создаёт учётную запись и
@@ -51,6 +53,11 @@ export class ClientsService {
     const user = await this.auth.createUser(actor.gymId, dto.email, dto.password, 'CLIENT');
     await this.prisma.client.update({ where: { id: clientId }, data: { userId: user.id } });
     await this.activityLog.log(actor, 'Выдал доступ в приложение', client.name, dto.email);
+    await this.email.send(
+      dto.email,
+      'Доступ в приложение SiberianGym',
+      `Здравствуйте, ${client.name}!\n\nВам открыт доступ в личный кабинет SiberianGym.\nEmail для входа: ${dto.email}\nПароль: ${dto.password}\n\nРекомендуем сменить пароль после первого входа.`,
+    );
     return { ok: true };
   }
 
@@ -291,6 +298,11 @@ export class ClientsService {
       'Оформил/продлил абонемент',
       client.name,
       `${MEMBERSHIP_LABEL[type]}${expiresAt ? ` до ${expiresAt.toISOString().slice(0, 10)}` : ''}`,
+    );
+    await this.email.send(
+      client.email,
+      'Абонемент оформлен — SiberianGym',
+      `Здравствуйте, ${client.name}!\n\nВаш абонемент оформлен: ${MEMBERSHIP_LABEL[type]}${expiresAt ? `, действует до ${expiresAt.toISOString().slice(0, 10)}` : ''}.\nСтоимость: ${price ?? 0} ₽.\n\nДо встречи в клубе!`,
     );
     return this.findOne(actor.gymId, clientId);
   }
