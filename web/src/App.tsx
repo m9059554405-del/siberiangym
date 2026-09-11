@@ -11,6 +11,7 @@ import { PaymentsPage } from './features/client/PaymentsPage'
 import { CalendarPage } from './features/client/CalendarPage'
 import { ShopPage } from './features/client/ShopPage'
 import { TrainerSelectionPage } from './features/client/TrainerSelectionPage'
+import { ExercisesPage } from './features/client/ExercisesPage'
 
 const ROLE_HOME: Record<Role, string> = {
   CLIENT: '/client/payments',
@@ -52,7 +53,7 @@ export default function App() {
             <Route path="payments" element={<PaymentsPage />} />
             <Route path="calendar" element={<CalendarPage />} />
             <Route path="shop" element={<ShopPage />} />
-            <Route path="exercises" element={<ComingSoonPage title="Упражнения и программа" />} />
+            <Route path="exercises" element={<ExercisesPage />} />
             <Route path="trainer" element={<TrainerSelectionPage />} />
             <Route path="news" element={<ComingSoonPage title="Новости клуба" />} />
             <Route path="progress" element={<ComingSoonPage title="Прогресс" />} />

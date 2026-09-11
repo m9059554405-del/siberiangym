@@ -3,6 +3,7 @@
 // CEO заводит сам через POST /api/auth/users после входа.
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { EXERCISE_LIBRARY } from './exercise-library';
 
 const prisma = new PrismaClient();
 
@@ -39,6 +40,16 @@ async function main() {
         groupMonthly: 3500,
       },
     });
+  }
+
+  const existingExercises = await prisma.exercise.count({ where: { gymId: gym.id } });
+  if (existingExercises === 0) {
+    await prisma.exercise.createMany({
+      data: EXERCISE_LIBRARY.map((e) => ({ gymId: gym.id, ...e })),
+    });
+    console.log(`Добавлена библиотека упражнений: ${EXERCISE_LIBRARY.length} шт.`);
+  } else {
+    console.log(`Библиотека упражнений уже заполнена (${existingExercises} шт.), пропускаю.`);
   }
 
   console.log(`Готово. Зал: ${gym.name} (${gym.id})`);
