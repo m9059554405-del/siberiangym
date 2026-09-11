@@ -96,6 +96,8 @@ export interface Exercise {
   defaultLoad: string
   technique: string | null
   equipment: string | null
+  imageUrl: string | null
+  imageAttribution: string | null
 }
 
 export interface ProgramExerciseEntry {

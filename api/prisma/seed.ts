@@ -42,14 +42,38 @@ async function main() {
     });
   }
 
-  const existingExercises = await prisma.exercise.count({ where: { gymId: gym.id } });
-  if (existingExercises === 0) {
+  const existingExercises = await prisma.exercise.findMany({
+    where: { gymId: gym.id },
+    select: { id: true, name: true, imageUrl: true },
+  });
+  const existingByName = new Map(existingExercises.map((e) => [e.name, e]));
+
+  const newExercises = EXERCISE_LIBRARY.filter((e) => !existingByName.has(e.name));
+  if (newExercises.length > 0) {
     await prisma.exercise.createMany({
-      data: EXERCISE_LIBRARY.map((e) => ({ gymId: gym.id, ...e })),
+      data: newExercises.map((e) => ({ gymId: gym.id, ...e })),
     });
-    console.log(`Добавлена библиотека упражнений: ${EXERCISE_LIBRARY.length} шт.`);
+    console.log(`Добавлена библиотека упражнений: ${newExercises.length} новых шт.`);
   } else {
-    console.log(`Библиотека упражнений уже заполнена (${existingExercises} шт.), пропускаю.`);
+    console.log(`Новых упражнений нет, библиотека уже актуальна (${existingByName.size} шт.).`);
+  }
+
+  // Библиотека могла получить фото для упражнений, которые уже были
+  // засеяны раньше без них (например, после подключения wger.de) —
+  // дозаполняем imageUrl/imageAttribution по имени, не трогая остальное.
+  const toBackfill = EXERCISE_LIBRARY.filter((e) => {
+    const row = existingByName.get(e.name);
+    return row && !row.imageUrl && e.imageUrl;
+  });
+  for (const e of toBackfill) {
+    const row = existingByName.get(e.name)!;
+    await prisma.exercise.update({
+      where: { id: row.id },
+      data: { imageUrl: e.imageUrl, imageAttribution: e.imageAttribution },
+    });
+  }
+  if (toBackfill.length > 0) {
+    console.log(`Добавлены фото к уже существующим упражнениям: ${toBackfill.length} шт.`);
   }
 
   console.log(`Готово. Зал: ${gym.name} (${gym.id})`);

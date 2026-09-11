@@ -274,6 +274,8 @@ model Exercise {
   defaultLoad  String      @map("default_load")
   technique    String?
   equipment    String?
+  imageUrl          String? @map("image_url")
+  imageAttribution  String? @map("image_attribution")
 
   @@index([gymId])
   @@map("exercises")

@@ -199,19 +199,33 @@ export function ExercisesPage() {
                       <span className="font-medium leading-snug">{ex.name}</span>
                       <Badge tone="neutral">{MUSCLE_GROUP_LABEL[ex.muscleGroup]}</Badge>
                     </div>
-                    <div className="flex gap-2">
-                      {images.map((img) => (
-                        <div key={img.phase} className="flex flex-1 flex-col items-center gap-1">
-                          <div
-                            className="flex h-16 w-full items-center justify-center rounded-lg text-2xl"
-                            style={{ background: `hsl(${img.hue}, 65%, 92%)` }}
-                          >
-                            {img.emoji}
+                    {ex.imageUrl ? (
+                      <div className="flex flex-col gap-1">
+                        <img
+                          src={`/${ex.imageUrl}`}
+                          alt={ex.name}
+                          loading="lazy"
+                          className="h-32 w-full rounded-lg object-cover"
+                        />
+                        {ex.imageAttribution && (
+                          <span className="text-[9px] text-[var(--text-faint)]">Фото: {ex.imageAttribution}</span>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        {images.map((img) => (
+                          <div key={img.phase} className="flex flex-1 flex-col items-center gap-1">
+                            <div
+                              className="flex h-16 w-full items-center justify-center rounded-lg text-2xl"
+                              style={{ background: `hsl(${img.hue}, 65%, 92%)` }}
+                            >
+                              {img.emoji}
+                            </div>
+                            <span className="text-[10px] text-[var(--text-faint)]">{img.phase}</span>
                           </div>
-                          <span className="text-[10px] text-[var(--text-faint)]">{img.phase}</span>
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    )}
                     {ex.technique && <p className="flex-1 text-xs text-[var(--text-muted)]">{ex.technique}</p>}
                     <div className="text-xs text-[var(--text-faint)]">
                       По умолчанию: {ex.defaultSets} × {ex.defaultReps} · {ex.defaultLoad} · {ex.equipment}
@@ -220,6 +234,13 @@ export function ExercisesPage() {
                 )
               })}
           </div>
+          <p className="text-center text-[10px] text-[var(--text-faint)]">
+            Фото упражнений предоставлены открытой базой{' '}
+            <a href="https://wger.de" target="_blank" rel="noreferrer" className="underline">
+              wger.de
+            </a>{' '}
+            по лицензии Creative Commons (CC-BY-SA), автор указан под каждым фото.
+          </p>
         </div>
       )}
 
