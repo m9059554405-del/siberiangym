@@ -12,6 +12,13 @@ import { CleaningModule } from './cleaning/cleaning.module';
 import { DirectorMessagesModule } from './director-messages/director-messages.module';
 import { ReportOffersModule } from './report-offers/report-offers.module';
 import { OutreachModule } from './outreach/outreach.module';
+import { ExercisesModule } from './exercises/exercises.module';
+import { ProgramsModule } from './programs/programs.module';
+import { WorkoutLogsModule } from './workout-logs/workout-logs.module';
+import { LockersModule } from './lockers/lockers.module';
+import { ClubPostsModule } from './club-posts/club-posts.module';
+import { FeedbackModule } from './feedback/feedback.module';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
@@ -28,6 +35,13 @@ import { OutreachModule } from './outreach/outreach.module';
     DirectorMessagesModule,
     ReportOffersModule,
     OutreachModule,
+    ExercisesModule,
+    ProgramsModule,
+    WorkoutLogsModule,
+    LockersModule,
+    ClubPostsModule,
+    FeedbackModule,
+    HealthModule,
   ],
 })
 export class AppModule {}

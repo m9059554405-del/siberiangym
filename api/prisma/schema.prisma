@@ -120,7 +120,7 @@ model Client {
 
   membership       Membership?
   formatHistory    ClientFormatHistoryEntry[]
-  programs         Program[]
+  program          Program?
   workoutLogs      WorkoutLogEntry[]
   progressPhotos   ProgressPhoto[]
   measurements     Measurement[]
@@ -278,16 +278,19 @@ model Exercise {
   @@map("exercises")
 }
 
+// У клиента ровно одна актуальная программа тренировок — при каждом
+// обновлении дни/упражнения полностью пересоздаются (как updateOwnProgram
+// / updateClientProgram в демо-версии, где программа — это одна запись,
+// которая целиком перезаписывается).
 model Program {
   id          String   @id @default(cuid())
-  clientId    String   @map("client_id")
+  clientId    String   @unique @map("client_id")
   client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   assignedBy  String   @map("assigned_by") // 'trainer' | 'self'
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   days ProgramDay[]
 
-  @@index([clientId])
   @@map("programs")
 }
 
