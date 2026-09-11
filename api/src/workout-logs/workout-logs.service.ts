@@ -60,6 +60,14 @@ export class WorkoutLogsService {
       .slice(0, limit);
   }
 
+  listAll(gymId: string) {
+    return this.prisma.workoutLogEntry.findMany({
+      where: { client: { gymId } },
+      include: { client: true, exercises: { include: { sets: true } } },
+      orderBy: { date: 'desc' },
+    });
+  }
+
   async listForClient(gymId: string, clientId: string) {
     return this.prisma.workoutLogEntry.findMany({
       where: { clientId, client: { gymId } },

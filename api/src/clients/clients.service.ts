@@ -57,7 +57,7 @@ export class ClientsService {
   findAll(gymId: string) {
     return this.prisma.client.findMany({
       where: { gymId },
-      include: { membership: true, trainer: true },
+      include: { membership: true, trainer: true, formatHistory: true },
       orderBy: { createdAt: 'desc' },
     });
   }

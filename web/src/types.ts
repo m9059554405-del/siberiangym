@@ -14,6 +14,8 @@ export type WriteoffReason = 'EXPIRED' | 'DAMAGED' | 'SOLD_MANUAL' | 'USED_INTER
 export type ClubPostType = 'NEWS' | 'PHOTO' | 'VIDEO' | 'ACHIEVEMENT'
 export type ProgressPhotoKind = 'FOOD' | 'BODY'
 export type MealType = 'BREAKFAST' | 'LUNCH' | 'DINNER' | 'OTHER'
+export type TransactionCategory = 'MEMBERSHIP' | 'PERSONAL' | 'GROUP' | 'ANCILLARY'
+export type OfferAudience = 'ALL' | 'EXPIRING_SOON' | 'TOP_PERFORMERS'
 
 export interface TrainerWorkHour {
   id: string

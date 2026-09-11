@@ -1,13 +1,11 @@
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
-import { ShieldCheck } from 'lucide-react'
 import { useAuthStore, type Role } from './store/useAuthStore'
 import { RootLayout } from './layouts/RootLayout'
 import { ClientShell } from './layouts/ClientShell'
 import { TrainerShell } from './layouts/TrainerShell'
 import { StaffShell } from './layouts/StaffShell'
-import { SimpleShell } from './layouts/SimpleShell'
+import { CeoShell } from './layouts/CeoShell'
 import { LoginPage } from './pages/LoginPage'
-import { ComingSoonPage } from './pages/ComingSoonPage'
 
 import { PaymentsPage } from './features/client/PaymentsPage'
 import { CalendarPage } from './features/client/CalendarPage'
@@ -26,6 +24,15 @@ import { NewsComposerPage } from './features/staff/NewsComposerPage'
 import { CleaningPage } from './features/staff/CleaningPage'
 import { EquipmentPage } from './features/staff/EquipmentPage'
 import { StockPage } from './features/shared/StockPage'
+
+import { TrainerLoadPage } from './features/ceo/TrainerLoadPage'
+import { AttendancePage } from './features/ceo/AttendancePage'
+import { RevenuePage } from './features/ceo/RevenuePage'
+import { ClientBasePage } from './features/ceo/ClientBasePage'
+import { TrainerDetailPage } from './features/ceo/TrainerDetailPage'
+import { MaintenancePage } from './features/ceo/MaintenancePage'
+import { ReportOffersPage } from './features/ceo/ReportOffersPage'
+import { ActivityLogPage } from './features/ceo/ActivityLogPage'
 
 const ROLE_HOME: Record<Role, string> = {
   CLIENT: '/client/payments',
@@ -105,11 +112,19 @@ export default function App() {
             path="/ceo"
             element={
               <RequireRole role="CEO">
-                <SimpleShell tabs={[{ to: '/ceo', label: 'Обзор', icon: ShieldCheck }]} />
+                <CeoShell />
               </RequireRole>
             }
           >
-            <Route index element={<ComingSoonPage title="Кабинет CEO" />} />
+            <Route index element={<TrainerLoadPage />} />
+            <Route path="trainers/:trainerId" element={<TrainerDetailPage />} />
+            <Route path="attendance" element={<AttendancePage />} />
+            <Route path="revenue" element={<RevenuePage />} />
+            <Route path="clients" element={<ClientBasePage />} />
+            <Route path="stock" element={<StockPage />} />
+            <Route path="maintenance" element={<MaintenancePage />} />
+            <Route path="offers" element={<ReportOffersPage />} />
+            <Route path="activity" element={<ActivityLogPage />} />
           </Route>
 
           <Route path="*" element={<HomeRedirect />} />

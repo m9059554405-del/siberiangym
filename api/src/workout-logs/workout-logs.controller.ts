@@ -13,6 +13,12 @@ import type { JwtPayload } from '../auth/auth.service';
 export class WorkoutLogsController {
   constructor(private readonly workoutLogs: WorkoutLogsService) {}
 
+  @Roles(Role.CEO, Role.STAFF)
+  @Get('workout-logs')
+  listAll(@CurrentUser() user: JwtPayload) {
+    return this.workoutLogs.listAll(user.gymId);
+  }
+
   @Roles(Role.CEO, Role.STAFF, Role.TRAINER)
   @Get('clients/:clientId/workout-logs')
   listForClient(@Param('clientId') clientId: string, @CurrentUser() user: JwtPayload) {
