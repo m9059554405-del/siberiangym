@@ -1,9 +1,10 @@
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
-import { Briefcase, ShieldCheck } from 'lucide-react'
+import { ShieldCheck } from 'lucide-react'
 import { useAuthStore, type Role } from './store/useAuthStore'
 import { RootLayout } from './layouts/RootLayout'
 import { ClientShell } from './layouts/ClientShell'
 import { TrainerShell } from './layouts/TrainerShell'
+import { StaffShell } from './layouts/StaffShell'
 import { SimpleShell } from './layouts/SimpleShell'
 import { LoginPage } from './pages/LoginPage'
 import { ComingSoonPage } from './pages/ComingSoonPage'
@@ -19,6 +20,12 @@ import { ProgressPage } from './features/client/ProgressPage'
 import { ClientListPage } from './features/trainer/ClientListPage'
 import { ClientDetailPage } from './features/trainer/ClientDetailPage'
 import { TrainerSchedulePage } from './features/trainer/TrainerSchedulePage'
+
+import { ClientsManagePage } from './features/staff/ClientsManagePage'
+import { NewsComposerPage } from './features/staff/NewsComposerPage'
+import { CleaningPage } from './features/staff/CleaningPage'
+import { EquipmentPage } from './features/staff/EquipmentPage'
+import { StockPage } from './features/shared/StockPage'
 
 const ROLE_HOME: Record<Role, string> = {
   CLIENT: '/client/payments',
@@ -83,11 +90,15 @@ export default function App() {
             path="/staff"
             element={
               <RequireRole role="STAFF">
-                <SimpleShell tabs={[{ to: '/staff', label: 'Клиенты', icon: Briefcase }]} />
+                <StaffShell />
               </RequireRole>
             }
           >
-            <Route index element={<ComingSoonPage title="Кабинет администратора" />} />
+            <Route index element={<ClientsManagePage />} />
+            <Route path="news" element={<NewsComposerPage />} />
+            <Route path="cleaning" element={<CleaningPage />} />
+            <Route path="equipment" element={<EquipmentPage />} />
+            <Route path="stock" element={<StockPage />} />
           </Route>
 
           <Route
