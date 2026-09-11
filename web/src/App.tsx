@@ -1,8 +1,9 @@
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
-import { Briefcase, ShieldCheck, Users } from 'lucide-react'
+import { Briefcase, ShieldCheck } from 'lucide-react'
 import { useAuthStore, type Role } from './store/useAuthStore'
 import { RootLayout } from './layouts/RootLayout'
 import { ClientShell } from './layouts/ClientShell'
+import { TrainerShell } from './layouts/TrainerShell'
 import { SimpleShell } from './layouts/SimpleShell'
 import { LoginPage } from './pages/LoginPage'
 import { ComingSoonPage } from './pages/ComingSoonPage'
@@ -14,6 +15,10 @@ import { TrainerSelectionPage } from './features/client/TrainerSelectionPage'
 import { ExercisesPage } from './features/client/ExercisesPage'
 import { NewsPage } from './features/client/NewsPage'
 import { ProgressPage } from './features/client/ProgressPage'
+
+import { ClientListPage } from './features/trainer/ClientListPage'
+import { ClientDetailPage } from './features/trainer/ClientDetailPage'
+import { TrainerSchedulePage } from './features/trainer/TrainerSchedulePage'
 
 const ROLE_HOME: Record<Role, string> = {
   CLIENT: '/client/payments',
@@ -65,11 +70,13 @@ export default function App() {
             path="/trainer"
             element={
               <RequireRole role="TRAINER">
-                <SimpleShell tabs={[{ to: '/trainer', label: 'Клиенты', icon: Users }]} />
+                <TrainerShell />
               </RequireRole>
             }
           >
-            <Route index element={<ComingSoonPage title="Кабинет тренера" />} />
+            <Route index element={<ClientListPage />} />
+            <Route path="clients/:clientId" element={<ClientDetailPage />} />
+            <Route path="schedule" element={<TrainerSchedulePage />} />
           </Route>
 
           <Route

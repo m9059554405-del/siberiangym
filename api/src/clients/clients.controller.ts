@@ -4,6 +4,7 @@ import { ClientsService } from './clients.service';
 import { CreateClientDto } from './dto/create-client.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
 import { ChangeTariffDto, ChooseTrainerDto, PurchaseMembershipDto } from './dto/membership-actions.dto';
+import { CreateLoginDto } from './dto/create-login.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -27,10 +28,10 @@ export class ClientsController {
     return this.clients.findMe(user);
   }
 
-  @Roles(Role.CEO, Role.STAFF)
+  @Roles(Role.CEO, Role.STAFF, Role.TRAINER)
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
-    return this.clients.findOne(user.gymId, id);
+    return this.clients.findOneForActor(user, id);
   }
 
   @Roles(Role.CEO, Role.STAFF)
@@ -67,5 +68,11 @@ export class ClientsController {
   @Post(':id/purchase-membership')
   purchaseMembership(@Param('id') id: string, @Body() dto: PurchaseMembershipDto, @CurrentUser() user: JwtPayload) {
     return this.clients.purchaseMembership(user, id, dto.type);
+  }
+
+  @Roles(Role.CEO, Role.STAFF)
+  @Post(':id/create-login')
+  createLogin(@Param('id') id: string, @Body() dto: CreateLoginDto, @CurrentUser() user: JwtPayload) {
+    return this.clients.createLogin(user, id, dto);
   }
 }

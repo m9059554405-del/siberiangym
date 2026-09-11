@@ -1,10 +1,12 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ClientFormat, MembershipType, Tariff } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActivityLogService } from '../activity-log/activity-log.service';
 import { CreateClientDto } from './dto/create-client.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
+import { CreateLoginDto } from './dto/create-login.dto';
 import { TARIFF_NAME, TARIFF_PRICE } from './tariffs.const';
+import { AuthService } from '../auth/auth.service';
 import type { JwtPayload } from '../auth/auth.service';
 
 const VALIDITY_DAYS: Record<MembershipType, number | null> = {
@@ -36,7 +38,21 @@ export class ClientsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly activityLog: ActivityLogService,
+    private readonly auth: AuthService,
   ) {}
+
+  // Выдаёт клиенту доступ в личный кабинет — создаёт учётную запись и
+  // привязывает её к уже существующей карточке клиента. Карточка может
+  // жить какое-то время без логина (администратор завёл клиента "с улицы",
+  // доступ в приложение оформляется отдельно).
+  async createLogin(actor: JwtPayload, clientId: string, dto: CreateLoginDto) {
+    const client = await this.findOne(actor.gymId, clientId);
+    if (client.userId) throw new BadRequestException('У клиента уже есть учётная запись');
+    const user = await this.auth.createUser(actor.gymId, dto.email, dto.password, 'CLIENT');
+    await this.prisma.client.update({ where: { id: clientId }, data: { userId: user.id } });
+    await this.activityLog.log(actor, 'Выдал доступ в приложение', client.name, dto.email);
+    return { ok: true };
+  }
 
   findAll(gymId: string) {
     return this.prisma.client.findMany({
@@ -52,6 +68,18 @@ export class ClientsService {
       include: { membership: true, trainer: true, formatHistory: true },
     });
     if (!client) throw new NotFoundException('Клиент не найден');
+    return client;
+  }
+
+  // Тренер видит только карточки своих подопечных.
+  async findOneForActor(actor: JwtPayload, id: string) {
+    const client = await this.findOne(actor.gymId, id);
+    if (actor.role === 'TRAINER') {
+      const trainer = await this.prisma.trainer.findUnique({ where: { userId: actor.sub } });
+      if (!trainer || client.trainerId !== trainer.id) {
+        throw new ForbiddenException('Можно смотреть только своих подопечных');
+      }
+    }
     return client;
   }
 
