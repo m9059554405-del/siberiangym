@@ -129,6 +129,8 @@ export class ClientsService {
         ...(dto.gender && { gender: dto.gender }),
         ...(dto.phone !== undefined && { phone: dto.phone }),
         ...(dto.email !== undefined && { email: dto.email }),
+        ...(dto.birthday !== undefined && { birthday: new Date(dto.birthday) }),
+        ...(dto.profilePhotoUrl !== undefined && { profilePhotoUrl: dto.profilePhotoUrl }),
       },
     });
     await this.activityLog.log(actor, 'Изменил данные клиента', client.name, 'Профиль обновлён');

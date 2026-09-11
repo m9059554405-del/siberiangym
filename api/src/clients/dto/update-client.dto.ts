@@ -18,4 +18,12 @@ export class UpdateClientDto {
   @IsOptional()
   @IsString()
   email?: string;
+
+  @IsOptional()
+  @IsString()
+  birthday?: string;
+
+  @IsOptional()
+  @IsString()
+  profilePhotoUrl?: string;
 }

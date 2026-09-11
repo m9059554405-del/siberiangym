@@ -69,6 +69,20 @@ export function useClubPosts() {
   return useQuery({ queryKey: ['club-posts'], queryFn: () => api.get<ClubPost[]>('/club-posts') })
 }
 
+export interface LeaderboardRow {
+  clientId: string
+  name: string
+  avatarHue: number
+  kg: number
+}
+
+export function useLeaderboard(period: 'day' | 'week' | 'month') {
+  return useQuery({
+    queryKey: ['workout-logs', 'leaderboard', period],
+    queryFn: () => api.get<LeaderboardRow[]>(`/workout-logs/leaderboard?period=${period}`),
+  })
+}
+
 export function useFeedback(clientId: string | undefined) {
   return useQuery({
     queryKey: ['feedback', clientId],
@@ -245,7 +259,7 @@ export function useAddCycleLog() {
 export function useUpdateOwnProfile(clientId: string | undefined) {
   const invalidate = useInvalidate([['me']])
   return useMutation({
-    mutationFn: (data: { name?: string; birthday?: string; phone?: string; email?: string }) => api.patch<Client>(`/clients/${clientId}`, data),
+    mutationFn: (data: { name?: string; birthday?: string; phone?: string; email?: string; profilePhotoUrl?: string }) => api.patch<Client>(`/clients/${clientId}`, data),
     onSuccess: invalidate,
   })
 }

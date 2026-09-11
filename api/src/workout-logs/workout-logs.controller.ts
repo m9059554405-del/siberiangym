@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { WorkoutLogsService } from './workout-logs.service';
 import { LogWorkoutDto } from './dto/log-workout.dto';
@@ -23,6 +23,11 @@ export class WorkoutLogsController {
   @Get('workout-logs/mine')
   listOwn(@CurrentUser() user: JwtPayload) {
     return this.workoutLogs.listOwn(user);
+  }
+
+  @Get('workout-logs/leaderboard')
+  leaderboard(@Query('period') period: 'day' | 'week' | 'month' = 'week', @CurrentUser() user: JwtPayload) {
+    return this.workoutLogs.leaderboard(user.gymId, period);
   }
 
   @Roles(Role.CLIENT)
