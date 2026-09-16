@@ -1,27 +1,29 @@
 import { useState } from 'react'
 import { Award, Clock } from 'lucide-react'
-import { useChangeTariff, useChooseTrainer, useGoSelfTraining, useMe, useTrainers } from '../../hooks/useClientApi'
+import { useGoSelfTraining, useMe, useTrainers } from '../../hooks/useClientApi'
+import { useCreateCashOrder } from '../../hooks/useOrdersApi'
 import { tariffById } from '../../data/tariffs'
 import { Avatar } from '../../components/ui/Avatar'
 import { Badge, Button, Card } from '../../components/ui/Primitives'
 import { Modal } from '../../components/ui/Modal'
 import { TariffPicker } from '../../components/TariffPicker'
 import { TrainerProfileModal } from '../../components/TrainerProfileModal'
+import { OrderPendingNotice } from '../../components/OrderPendingNotice'
 import { formatMoney, getInitials } from '../../lib/format'
-import type { Tariff, Trainer } from '../../types'
+import type { Order, Tariff, Trainer } from '../../types'
 
 const WEEKDAY_LABELS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
 
 export function TrainerSelectionPage() {
   const { data: client } = useMe()
   const { data: trainers } = useTrainers()
-  const chooseTrainer = useChooseTrainer(client?.id)
-  const changeTariff = useChangeTariff(client?.id)
+  const createCashOrder = useCreateCashOrder()
   const goSelfTraining = useGoSelfTraining(client?.id)
 
   const [picked, setPicked] = useState<Trainer | null>(null)
   const [changingTariff, setChangingTariff] = useState(false)
   const [viewingProfile, setViewingProfile] = useState<Trainer | null>(null)
+  const [pendingOrder, setPendingOrder] = useState<Order | null>(null)
 
   if (!client || !trainers) return null
 
@@ -30,11 +32,10 @@ export function TrainerSelectionPage() {
 
   function handleSelectTariff(tariff: Tariff) {
     if (!picked) return
-    if (picked.id === client!.trainerId) {
-      changeTariff.mutate(tariff)
-    } else {
-      chooseTrainer.mutate({ trainerId: picked.id, tariff })
-    }
+    createCashOrder.mutate(
+      { clientId: client!.id, lines: [{ type: 'TARIFF_CHANGE', meta: { tariff, trainerId: picked.id } }] },
+      { onSuccess: setPendingOrder },
+    )
     setPicked(null)
   }
 
@@ -44,6 +45,8 @@ export function TrainerSelectionPage() {
         <h1 className="text-xl font-bold">Выбор тренера</h1>
         <p className="text-sm text-[var(--text-muted)]">Персональные или групповые тренировки с профи клуба</p>
       </div>
+
+      {pendingOrder && <OrderPendingNotice order={pendingOrder} onDismiss={() => setPendingOrder(null)} />}
 
       {client.format === 'SELF' || !currentTrainer ? (
         <Card className="bg-[var(--accent-soft)] text-sm text-[var(--accent-strong)]">Сейчас вы занимаетесь самостоятельно</Card>
@@ -112,7 +115,10 @@ export function TrainerSelectionPage() {
         <TariffPicker
           currentTariff={client.tariff}
           onSelect={(tariff) => {
-            changeTariff.mutate(tariff)
+            createCashOrder.mutate(
+              { clientId: client.id, lines: [{ type: 'TARIFF_CHANGE', meta: { tariff, trainerId: client.trainerId ?? undefined } }] },
+              { onSuccess: setPendingOrder },
+            )
             setChangingTariff(false)
           }}
         />

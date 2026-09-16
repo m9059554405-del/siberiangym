@@ -1,15 +1,17 @@
 import { useMemo, useState, type PropsWithChildren } from 'react'
 import { Plus, RefreshCcw, UserCog, UserPlus } from 'lucide-react'
-import { useChangeTariff, useChooseTrainer, useGoSelfTraining, usePurchaseMembership, useTrainers } from '../../hooks/useClientApi'
+import { useGoSelfTraining, useTrainers } from '../../hooks/useClientApi'
+import { useCreateCashOrder } from '../../hooks/useOrdersApi'
 import { useAllClients, useCreateClient, useCreateClientLogin, useUpdateClient, type CreateClientPayload } from '../../hooks/useStaffApi'
 import { TARIFFS } from '../../data/tariffs'
 import { Avatar } from '../../components/ui/Avatar'
 import { Badge, Button, Card, EmptyState, SectionTitle } from '../../components/ui/Primitives'
 import { Modal } from '../../components/ui/Modal'
 import { ClientOutreachList } from '../../components/ClientOutreachList'
+import { OrderPendingNotice } from '../../components/OrderPendingNotice'
 import { formatMoney, getInitials } from '../../lib/format'
 import { usePricing } from '../../hooks/useClientApi'
-import type { Client, Gender, MembershipType, Tariff } from '../../types'
+import type { Client, Gender, MembershipType, Order, Tariff } from '../../types'
 
 function Field({ label, children }: PropsWithChildren<{ label: string }>) {
   return (
@@ -55,10 +57,8 @@ export function ClientsManagePage() {
   const { data: pricing } = usePricing()
   const createClient = useCreateClient()
   const updateClient = useUpdateClient()
-  const chooseTrainer = useChooseTrainer(undefined)
-  const changeTariff = useChangeTariff(undefined)
   const goSelfTraining = useGoSelfTraining(undefined)
-  const purchaseMembership = usePurchaseMembership(undefined)
+  const createCashOrder = useCreateCashOrder()
 
   const [createOpen, setCreateOpen] = useState(false)
   const [createDraft, setCreateDraft] = useState<ClientDraft>(EMPTY_DRAFT)
@@ -66,6 +66,7 @@ export function ClientsManagePage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState<ClientDraft>(EMPTY_DRAFT)
   const [renewType, setRenewType] = useState<MembershipType>('MONTHLY')
+  const [pendingOrder, setPendingOrder] = useState<Order | null>(null)
 
   const [search, setSearch] = useState('')
   const [sortMode, setSortMode] = useState<SortMode>('joined_desc')
@@ -128,6 +129,7 @@ export function ClientsManagePage() {
     setLoginEmail('')
     setLoginPassword('')
     setLoginDone(false)
+    setPendingOrder(null)
   }
 
   return (
@@ -261,11 +263,23 @@ export function ClientsManagePage() {
             setRenewType={setRenewType}
             onSaveProfile={(patch) => updateClient.mutate({ clientId: editingClient.id, data: patch })}
             onSaveTrainer={() => {
-              if (!editDraft.trainerId) goSelfTraining.mutate()
-              else if (editingClient.trainerId === editDraft.trainerId) changeTariff.mutate(editDraft.tariff)
-              else chooseTrainer.mutate({ trainerId: editDraft.trainerId, tariff: editDraft.tariff })
+              if (!editDraft.trainerId) {
+                goSelfTraining.mutate()
+              } else {
+                createCashOrder.mutate(
+                  { clientId: editingClient.id, lines: [{ type: 'TARIFF_CHANGE', meta: { tariff: editDraft.tariff, trainerId: editDraft.trainerId } }] },
+                  { onSuccess: setPendingOrder },
+                )
+              }
             }}
-            onRenew={() => purchaseMembership.mutate(renewType)}
+            onRenew={() =>
+              createCashOrder.mutate(
+                { clientId: editingClient.id, lines: [{ type: 'MEMBERSHIP_PURCHASE', meta: { membershipType: renewType } }] },
+                { onSuccess: setPendingOrder },
+              )
+            }
+            pendingOrder={pendingOrder}
+            onDismissPendingOrder={() => setPendingOrder(null)}
             loginEmail={loginEmail}
             setLoginEmail={setLoginEmail}
             loginPassword={loginPassword}
@@ -282,6 +296,7 @@ export function ClientsManagePage() {
 
 function EditClientForm({
   client, draft, setDraft, trainers, pricing, renewType, setRenewType, onSaveProfile, onSaveTrainer, onRenew,
+  pendingOrder, onDismissPendingOrder,
   loginEmail, setLoginEmail, loginPassword, setLoginPassword, loginDone, onCreateLogin, loginPending,
 }: {
   client: Client
@@ -294,6 +309,8 @@ function EditClientForm({
   onSaveProfile: (patch: { name?: string; gender?: Gender; phone?: string; email?: string }) => void
   onSaveTrainer: () => void
   onRenew: () => void
+  pendingOrder: Order | null
+  onDismissPendingOrder: () => void
   loginEmail: string
   setLoginEmail: (v: string) => void
   loginPassword: string
@@ -304,6 +321,7 @@ function EditClientForm({
 }) {
   return (
     <div className="flex flex-col gap-5">
+      {pendingOrder && <OrderPendingNotice order={pendingOrder} onDismiss={onDismissPendingOrder} />}
       <div className="flex flex-col gap-2.5">
         <div className="text-xs font-semibold uppercase tracking-wide text-[var(--text-faint)]">Данные клиента</div>
         <input value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}

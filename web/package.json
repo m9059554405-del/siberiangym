@@ -1,7 +1,7 @@
 {
   "name": "siberiangym-web",
   "private": true,
-  "version": "0.14.0",
+  "version": "0.15.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.102.8",
+    "@zxing/browser": "^0.2.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
     "lucide-react": "^1.45.0",

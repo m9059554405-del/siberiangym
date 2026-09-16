@@ -1,20 +1,20 @@
 import { useState } from 'react'
 import { CalendarCheck, CreditCard, History, MessageCircle, Send, Sparkles, TicketPercent } from 'lucide-react'
 import {
-  useChangeTariff,
   useMarkDirectorMessagesSeen,
   useMe,
   useOwnDirectorMessages,
   usePricing,
-  usePurchaseMembership,
   useSendDirectorMessage,
   useTrainers,
 } from '../../hooks/useClientApi'
+import { useCreateCashOrder } from '../../hooks/useOrdersApi'
 import { tariffById } from '../../data/tariffs'
 import { Badge, Button, Card, EmptyState, SectionTitle } from '../../components/ui/Primitives'
 import { TariffPicker } from '../../components/TariffPicker'
+import { OrderPendingNotice } from '../../components/OrderPendingNotice'
 import { formatMoney } from '../../lib/format'
-import type { MembershipType } from '../../types'
+import type { MembershipType, Order, Tariff } from '../../types'
 
 const MEMBERSHIP_LABELS: Record<MembershipType, { title: string; desc: string; icon: typeof CreditCard }> = {
   SINGLE: { title: 'Разовое занятие', desc: 'Один визит в клуб без абонемента', icon: TicketPercent },
@@ -34,14 +34,24 @@ export function PaymentsPage() {
   const { data: pricing } = usePricing()
   const { data: trainers } = useTrainers()
   const { data: messages } = useOwnDirectorMessages()
-  const purchaseMembership = usePurchaseMembership(client?.id)
-  const changeTariff = useChangeTariff(client?.id)
+  const createCashOrder = useCreateCashOrder()
   const sendMessage = useSendDirectorMessage()
   const markSeen = useMarkDirectorMessagesSeen()
 
   const [feedbackText, setFeedbackText] = useState('')
   const [feedbackSent, setFeedbackSent] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
+  const [pendingOrder, setPendingOrder] = useState<Order | null>(null)
+
+  function purchaseMembership(type: MembershipType) {
+    if (!client) return
+    createCashOrder.mutate({ clientId: client.id, lines: [{ type: 'MEMBERSHIP_PURCHASE', meta: { membershipType: type } }] }, { onSuccess: setPendingOrder })
+  }
+
+  function changeTariff(tariff: Tariff) {
+    if (!client) return
+    createCashOrder.mutate({ clientId: client.id, lines: [{ type: 'TARIFF_CHANGE', meta: { tariff } }] }, { onSuccess: setPendingOrder })
+  }
 
   if (!client || !pricing) return null
 
@@ -78,6 +88,8 @@ export function PaymentsPage() {
         <h1 className="text-xl font-bold">Привет, {client.name.split(' ')[0]}!</h1>
         <p className="text-sm text-[var(--text-muted)]">Управляйте абонементом и оплатами клуба</p>
       </div>
+
+      {pendingOrder && <OrderPendingNotice order={pendingOrder} onDismiss={() => setPendingOrder(null)} />}
 
       <Card className="text-white" style={{ background: 'var(--accent-gradient)', border: 'none' }}>
         <div className="flex items-start justify-between">
@@ -125,8 +137,8 @@ export function PaymentsPage() {
                   <Button
                     size="sm"
                     variant={isCurrent ? 'secondary' : 'primary'}
-                    disabled={isCurrent || purchaseMembership.isPending}
-                    onClick={() => purchaseMembership.mutate(type)}
+                    disabled={isCurrent || createCashOrder.isPending}
+                    onClick={() => purchaseMembership(type)}
                   >
                     {isCurrent ? 'Активен' : 'Купить'}
                   </Button>
@@ -143,7 +155,7 @@ export function PaymentsPage() {
           subtitle={trainer ? 'Выберите уровень работы с тренером' : 'Доступно при выборе тренера — сейчас вы тренируетесь самостоятельно'}
         />
         {trainer ? (
-          <TariffPicker currentTariff={client.tariff} onSelect={(tariff) => changeTariff.mutate(tariff)} />
+          <TariffPicker currentTariff={client.tariff} onSelect={changeTariff} />
         ) : (
           <Card className="text-sm text-[var(--text-muted)]">Чтобы выбрать тариф, сначала выберите тренера во вкладке «Тренер».</Card>
         )}

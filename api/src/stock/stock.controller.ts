@@ -28,12 +28,6 @@ export class StockController {
     return this.stock.createCatalogItem(user, dto);
   }
 
-  @Roles(Role.CLIENT)
-  @Post('purchase')
-  purchase(@Body('catalogItemId') catalogItemId: string, @CurrentUser() user: JwtPayload) {
-    return this.stock.purchase(user, catalogItemId);
-  }
-
   @Get('summary')
   summary(@CurrentUser() user: JwtPayload) {
     return this.stock.summary(user.gymId);

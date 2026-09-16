@@ -45,33 +45,9 @@ export class ScheduleService {
     return gc;
   }
 
-  async bookGroupClass(actor: JwtPayload, classId: string, explicitClientId?: string) {
-    const clientId = await resolveClientId(this.prisma, actor, explicitClientId);
-    const gc = await this.prisma.groupClass.findFirst({ where: { id: classId, gymId: actor.gymId }, include: { bookings: true } });
-    if (!gc) throw new NotFoundException('Занятие не найдено');
-    if (gc.bookings.some((b) => b.clientId === clientId)) throw new BadRequestException('Клиент уже записан');
-    if (gc.bookings.length >= gc.capacity) throw new BadRequestException('Мест не осталось');
-
-    const pricing = await this.prisma.membershipPricing.findUnique({ where: { gymId: actor.gymId } });
-    const client = await this.prisma.client.findUniqueOrThrow({ where: { id: clientId } });
-
-    await this.prisma.$transaction([
-      this.prisma.groupClassBooking.create({ data: { groupClassId: classId, clientId } }),
-      this.prisma.transaction.create({
-        data: {
-          gymId: actor.gymId,
-          amount: pricing?.groupSingle ?? 0,
-          category: 'GROUP',
-          clientId,
-          trainerId: gc.trainerId,
-          description: `Запись на групповую тренировку — ${gc.type}`,
-        },
-      }),
-    ]);
-
-    await this.activityLog.log(actor, 'Записался на групповое занятие', client.name, `${gc.type}, ${gc.date.toISOString().slice(0, 10)}`);
-    return this.prisma.groupClass.findUnique({ where: { id: classId }, include: { bookings: true } });
-  }
+  // Запись на групповое занятие — с P0.2 идёт через POST /orders
+  // (GROUP_CLASS_BOOKING) и применяется только после подтверждения оплаты
+  // чеком, см. api/src/orders/orders.service.ts.
 
   async cancelGroupClassBooking(actor: JwtPayload, classId: string, explicitClientId?: string) {
     const clientId = await resolveClientId(this.prisma, actor, explicitClientId);
@@ -98,30 +74,9 @@ export class ScheduleService {
     });
   }
 
-  async bookPersonalSlot(actor: JwtPayload, slotId: string, explicitClientId?: string) {
-    const clientId = await resolveClientId(this.prisma, actor, explicitClientId);
-    const slot = await this.prisma.personalSlot.findFirst({ where: { id: slotId, gymId: actor.gymId }, include: { trainer: true } });
-    if (!slot) throw new NotFoundException('Слот не найден');
-    if (slot.status !== 'FREE') throw new BadRequestException('Слот уже занят');
-    const client = await this.prisma.client.findUniqueOrThrow({ where: { id: clientId } });
-
-    await this.prisma.$transaction([
-      this.prisma.personalSlot.update({ where: { id: slotId }, data: { status: 'BOOKED', clientId } }),
-      this.prisma.transaction.create({
-        data: {
-          gymId: actor.gymId,
-          amount: slot.trainer.personalSessionPrice,
-          category: 'PERSONAL',
-          clientId,
-          trainerId: slot.trainerId,
-          description: `Персональная тренировка — ${slot.trainer.name}`,
-        },
-      }),
-    ]);
-
-    await this.activityLog.log(actor, 'Записался на персональную тренировку', client.name, `${slot.trainer.name}, ${slot.date.toISOString().slice(0, 10)} ${slot.start}`);
-    return this.prisma.personalSlot.findUnique({ where: { id: slotId } });
-  }
+  // Запись на персональный слот — с P0.2 идёт через POST /orders
+  // (PERSONAL_SLOT_BOOKING) и применяется только после подтверждения оплаты
+  // чеком, см. api/src/orders/orders.service.ts.
 
   async cancelPersonalSlot(actor: JwtPayload, slotId: string) {
     const slot = await this.prisma.personalSlot.findFirst({ where: { id: slotId, gymId: actor.gymId } });

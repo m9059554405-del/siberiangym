@@ -24,6 +24,7 @@ import { NewsComposerPage } from './features/staff/NewsComposerPage'
 import { CleaningPage } from './features/staff/CleaningPage'
 import { EquipmentPage } from './features/staff/EquipmentPage'
 import { StockPage } from './features/shared/StockPage'
+import { OrdersPage } from './features/shared/OrdersPage'
 
 import { TrainerLoadPage } from './features/ceo/TrainerLoadPage'
 import { AttendancePage } from './features/ceo/AttendancePage'
@@ -102,6 +103,7 @@ export default function App() {
             }
           >
             <Route index element={<ClientsManagePage />} />
+            <Route path="orders" element={<OrdersPage />} />
             <Route path="news" element={<NewsComposerPage />} />
             <Route path="cleaning" element={<CleaningPage />} />
             <Route path="equipment" element={<EquipmentPage />} />
@@ -121,6 +123,7 @@ export default function App() {
             <Route path="attendance" element={<AttendancePage />} />
             <Route path="revenue" element={<RevenuePage />} />
             <Route path="clients" element={<ClientBasePage />} />
+            <Route path="orders" element={<OrdersPage />} />
             <Route path="stock" element={<StockPage />} />
             <Route path="maintenance" element={<MaintenancePage />} />
             <Route path="offers" element={<ReportOffersPage />} />

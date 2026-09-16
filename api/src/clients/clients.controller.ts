@@ -3,7 +3,6 @@ import { Role } from '@prisma/client';
 import { ClientsService } from './clients.service';
 import { CreateClientDto } from './dto/create-client.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
-import { ChangeTariffDto, ChooseTrainerDto, PurchaseMembershipDto } from './dto/membership-actions.dto';
 import { CreateLoginDto } from './dto/create-login.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -46,28 +45,15 @@ export class ClientsController {
     return this.clients.update(user, id, dto);
   }
 
-  @Roles(Role.CEO, Role.STAFF, Role.CLIENT)
-  @Post(':id/choose-trainer')
-  chooseTrainer(@Param('id') id: string, @Body() dto: ChooseTrainerDto, @CurrentUser() user: JwtPayload) {
-    return this.clients.chooseTrainer(user, id, dto.trainerId, dto.tariff);
-  }
-
-  @Roles(Role.CEO, Role.STAFF, Role.CLIENT)
-  @Post(':id/change-tariff')
-  changeTariff(@Param('id') id: string, @Body() dto: ChangeTariffDto, @CurrentUser() user: JwtPayload) {
-    return this.clients.changeTariff(user, id, dto.tariff);
-  }
+  // Выбор/смена тренера, смена тарифа и оформление/продление абонемента —
+  // платные действия, с P0.2 идут через POST /orders (см. api/src/orders/),
+  // а не через прямые эндпоинты здесь: старая логика сразу отмечала
+  // "оплачено" без проверки, что чек вообще был пробит.
 
   @Roles(Role.CEO, Role.STAFF, Role.CLIENT)
   @Post(':id/go-self-training')
   goSelfTraining(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     return this.clients.goSelfTraining(user, id);
-  }
-
-  @Roles(Role.CEO, Role.STAFF, Role.CLIENT)
-  @Post(':id/purchase-membership')
-  purchaseMembership(@Param('id') id: string, @Body() dto: PurchaseMembershipDto, @CurrentUser() user: JwtPayload) {
-    return this.clients.purchaseMembership(user, id, dto.type);
   }
 
   @Roles(Role.CEO, Role.STAFF)

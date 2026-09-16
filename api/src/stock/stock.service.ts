@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { StockLocation } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActivityLogService } from '../activity-log/activity-log.service';
@@ -57,24 +57,9 @@ export class StockService {
     });
   }
 
-  // Покупка товара клиентом в приложении (вода/еда) — просто фиксирует
-  // транзакцию, без учёта остатков (так же, как в демо-версии).
-  async purchase(actor: JwtPayload, catalogItemId: string) {
-    const item = await this.prisma.catalogItem.findFirst({ where: { id: catalogItemId, gymId: actor.gymId } });
-    if (!item) throw new NotFoundException('Товар не найден');
-    const client = await this.prisma.client.findUnique({ where: { userId: actor.sub } });
-    if (!client) throw new ForbiddenException('У пользователя нет карточки клиента');
-
-    return this.prisma.transaction.create({
-      data: {
-        gymId: actor.gymId,
-        amount: item.price,
-        category: 'ANCILLARY',
-        clientId: client.id,
-        description: item.name,
-      },
-    });
-  }
+  // Покупка товара клиентом (вода/еда) — с P0.2 идёт через POST /orders
+  // (STOCK_PURCHASE) и применяется только после подтверждения оплаты чеком,
+  // см. api/src/orders/orders.service.ts.
 
   async receive(actor: JwtPayload, dto: ReceiveStockDto) {
     const item = await this.prisma.catalogItem.findFirst({ where: { id: dto.catalogItemId, gymId: actor.gymId } });
