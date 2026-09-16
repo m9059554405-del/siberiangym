@@ -17,6 +17,46 @@ export type MealType = 'BREAKFAST' | 'LUNCH' | 'DINNER' | 'OTHER'
 export type TransactionCategory = 'MEMBERSHIP' | 'PERSONAL' | 'GROUP' | 'ANCILLARY'
 export type OfferAudience = 'ALL' | 'EXPIRING_SOON' | 'TOP_PERFORMERS'
 
+export type OrderStatus = 'DRAFT' | 'AWAITING_PAYMENT' | 'PAID' | 'CANCELLED' | 'EXPIRED'
+export type OrderPaymentMethod = 'CASH' | 'CARD_ONLINE'
+export type OrderLineType =
+  | 'MEMBERSHIP_PURCHASE'
+  | 'MEMBERSHIP_RENEWAL'
+  | 'TARIFF_CHANGE'
+  | 'STOCK_PURCHASE'
+  | 'LOCKER_RENTAL'
+  | 'GROUP_CLASS_BOOKING'
+  | 'PERSONAL_SLOT_BOOKING'
+
+export interface OrderLine {
+  id: string
+  type: OrderLineType
+  refId: string | null
+  amount: number
+  meta: Record<string, unknown> | null
+}
+
+export interface Order {
+  id: string
+  clientId: string
+  client?: Client
+  createdBy: string
+  status: OrderStatus
+  paymentMethod: OrderPaymentMethod | null
+  totalAmount: number
+  receiptRaw: string | null
+  receiptDate: string | null
+  receiptFn: string | null
+  receiptI: string | null
+  receiptFp: string | null
+  expiresAt: string | null
+  paidAt: string | null
+  cancelledAt: string | null
+  cancelReason: string | null
+  createdAt: string
+  lines: OrderLine[]
+}
+
 export interface TrainerWorkHour {
   id: string
   day: number

@@ -1,38 +1,13 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { ClientFormat, MembershipType, Tariff } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActivityLogService } from '../activity-log/activity-log.service';
 import { CreateClientDto } from './dto/create-client.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
 import { CreateLoginDto } from './dto/create-login.dto';
-import { TARIFF_NAME, TARIFF_PRICE } from './tariffs.const';
+import { formatForTariff, VALIDITY_DAYS, VISITS_TOTAL } from './membership.const';
 import { AuthService } from '../auth/auth.service';
 import { EmailService } from '../email/email.service';
 import type { JwtPayload } from '../auth/auth.service';
-
-const VALIDITY_DAYS: Record<MembershipType, number | null> = {
-  SINGLE: null,
-  MONTHLY: 30,
-  PACK10: 90,
-  PACK20: 120,
-};
-const VISITS_TOTAL: Record<MembershipType, number | null> = {
-  SINGLE: null,
-  MONTHLY: null,
-  PACK10: 10,
-  PACK20: 20,
-};
-const MEMBERSHIP_LABEL: Record<MembershipType, string> = {
-  SINGLE: 'Разовое посещение',
-  MONTHLY: 'Абонемент на месяц',
-  PACK10: 'Абонемент на 10 занятий',
-  PACK20: 'Абонемент на 20 занятий',
-};
-
-function formatForTariff(tariff: Tariff | undefined | null): ClientFormat {
-  if (!tariff) return ClientFormat.SELF;
-  return tariff === Tariff.INDIVIDUAL ? ClientFormat.PERSONAL : ClientFormat.GROUP;
-}
 
 @Injectable()
 export class ClientsService {
@@ -172,76 +147,12 @@ export class ClientsService {
     return client;
   }
 
-  async chooseTrainer(actor: JwtPayload, clientId: string, trainerId: string, tariff: Tariff) {
-    const client = await this.findOne(actor.gymId, clientId);
-    await this.assertCanAct(actor, client);
-    const trainer = await this.prisma.trainer.findFirst({ where: { id: trainerId, gymId: actor.gymId } });
-    if (!trainer) throw new NotFoundException('Тренер не найден');
-
-    const today = new Date();
-    const format = formatForTariff(tariff);
-
-    await this.prisma.$transaction([
-      this.prisma.clientFormatHistoryEntry.updateMany({
-        where: { clientId, to: null },
-        data: { to: today },
-      }),
-      this.prisma.clientFormatHistoryEntry.create({
-        data: { clientId, trainerId, format, from: today, to: null },
-      }),
-      this.prisma.client.update({ where: { id: clientId }, data: { trainerId, tariff, format } }),
-      this.prisma.transaction.create({
-        data: {
-          gymId: actor.gymId,
-          amount: TARIFF_PRICE[tariff],
-          category: 'PERSONAL',
-          clientId,
-          trainerId,
-          description: `Тариф «${TARIFF_NAME[tariff]}» — ${trainer.name}`,
-        },
-      }),
-    ]);
-
-    await this.activityLog.log(actor, 'Выбрал тренера', client.name, `Тренер: ${trainer.name}, тариф «${TARIFF_NAME[tariff]}»`);
-    return this.findOne(actor.gymId, clientId);
-  }
-
-  async changeTariff(actor: JwtPayload, clientId: string, tariff: Tariff) {
-    const client = await this.findOne(actor.gymId, clientId);
-    await this.assertCanAct(actor, client);
-    if (!client.trainerId) throw new ForbiddenException('У клиента нет тренера — сначала выберите тренера');
-
-    const today = new Date();
-    const format = formatForTariff(tariff);
-    const formatChanged = format !== client.format;
-
-    const ops = [];
-    if (formatChanged) {
-      ops.push(
-        this.prisma.clientFormatHistoryEntry.updateMany({ where: { clientId, to: null }, data: { to: today } }),
-        this.prisma.clientFormatHistoryEntry.create({
-          data: { clientId, trainerId: client.trainerId, format, from: today, to: null },
-        }),
-      );
-    }
-    ops.push(
-      this.prisma.client.update({ where: { id: clientId }, data: { tariff, ...(formatChanged && { format }) } }),
-      this.prisma.transaction.create({
-        data: {
-          gymId: actor.gymId,
-          amount: TARIFF_PRICE[tariff],
-          category: 'PERSONAL',
-          clientId,
-          trainerId: client.trainerId,
-          description: `Смена тарифа на «${TARIFF_NAME[tariff]}»`,
-        },
-      }),
-    );
-    await this.prisma.$transaction(ops);
-
-    await this.activityLog.log(actor, 'Сменил тариф', client.name, `Новый тариф: «${TARIFF_NAME[tariff]}»`);
-    return this.findOne(actor.gymId, clientId);
-  }
+  // Смена/выбор тренера и тарифа, а также оформление/продление абонемента
+  // раньше жили здесь и сразу создавали Transaction, доверяя администратору
+  // на слово, что деньги приняты. С P0.2 это платные действия и применяются
+  // только через OrdersService.applyLine, после подтверждения оплаты
+  // отсканированным кассовым чеком — см. api/src/orders/orders.service.ts
+  // (TARIFF_CHANGE и MEMBERSHIP_PURCHASE/MEMBERSHIP_RENEWAL).
 
   async goSelfTraining(actor: JwtPayload, clientId: string) {
     const client = await this.findOne(actor.gymId, clientId);
@@ -257,53 +168,6 @@ export class ClientsService {
     ]);
 
     await this.activityLog.log(actor, 'Перешёл на самостоятельные тренировки', client.name, 'Тренер и тариф сняты');
-    return this.findOne(actor.gymId, clientId);
-  }
-
-  async purchaseMembership(actor: JwtPayload, clientId: string, type: MembershipType) {
-    const client = await this.findOne(actor.gymId, clientId);
-    await this.assertCanAct(actor, client);
-
-    const pricing = await this.prisma.membershipPricing.findUnique({ where: { gymId: actor.gymId } });
-    const price =
-      type === 'SINGLE' ? pricing?.single
-      : type === 'MONTHLY' ? pricing?.monthly
-      : type === 'PACK10' ? pricing?.pack10
-      : pricing?.pack20;
-
-    const today = new Date();
-    const validityDays = VALIDITY_DAYS[type];
-    const expiresAt = validityDays ? new Date(today.getTime() + validityDays * 86400000) : null;
-    const visitsTotal = VISITS_TOTAL[type];
-
-    await this.prisma.$transaction([
-      this.prisma.membership.upsert({
-        where: { clientId },
-        create: { clientId, type, purchasedAt: today, expiresAt, visitsTotal, visitsLeft: visitsTotal, status: 'ACTIVE' },
-        update: { type, purchasedAt: today, expiresAt, visitsTotal, visitsLeft: visitsTotal, status: 'ACTIVE' },
-      }),
-      this.prisma.transaction.create({
-        data: {
-          gymId: actor.gymId,
-          amount: price ?? 0,
-          category: 'MEMBERSHIP',
-          clientId,
-          description: MEMBERSHIP_LABEL[type],
-        },
-      }),
-    ]);
-
-    await this.activityLog.log(
-      actor,
-      'Оформил/продлил абонемент',
-      client.name,
-      `${MEMBERSHIP_LABEL[type]}${expiresAt ? ` до ${expiresAt.toISOString().slice(0, 10)}` : ''}`,
-    );
-    await this.email.send(
-      client.email,
-      'Абонемент оформлен — SiberianGym',
-      `Здравствуйте, ${client.name}!\n\nВаш абонемент оформлен: ${MEMBERSHIP_LABEL[type]}${expiresAt ? `, действует до ${expiresAt.toISOString().slice(0, 10)}` : ''}.\nСтоимость: ${price ?? 0} ₽.\n\nДо встречи в клубе!`,
-    );
     return this.findOne(actor.gymId, clientId);
   }
 }

@@ -1,7 +1,10 @@
 import { useState } from 'react'
 import { Lock, LockOpen } from 'lucide-react'
-import { useCatalog, useLockers, useMe, usePurchaseCatalogItem, useReleaseLocker, useRentLocker } from '../../hooks/useClientApi'
+import { useCatalog, useLockers, useMe, useReleaseLocker } from '../../hooks/useClientApi'
+import { useCreateCashOrder } from '../../hooks/useOrdersApi'
 import { Badge, Button, Card, SectionTitle } from '../../components/ui/Primitives'
+import { OrderPendingNotice } from '../../components/OrderPendingNotice'
+import type { Order } from '../../types'
 
 const LOCKER_DAY_OPTIONS = [1, 7, 30]
 
@@ -9,11 +12,11 @@ export function ShopPage() {
   const { data: client } = useMe()
   const { data: lockers } = useLockers()
   const { data: catalog } = useCatalog()
-  const rentLocker = useRentLocker()
+  const createCashOrder = useCreateCashOrder()
   const releaseLocker = useReleaseLocker()
-  const buyCatalogItem = usePurchaseCatalogItem()
   const [days, setDays] = useState(7)
   const [boughtId, setBoughtId] = useState<string | null>(null)
+  const [pendingOrder, setPendingOrder] = useState<Order | null>(null)
 
   if (!client || !lockers || !catalog) return null
 
@@ -21,12 +24,23 @@ export function ShopPage() {
   const freeLockers = lockers.filter((l) => l.status === 'FREE')
 
   function buy(id: string) {
-    buyCatalogItem.mutate(id, {
-      onSuccess: () => {
-        setBoughtId(id)
-        setTimeout(() => setBoughtId((v) => (v === id ? null : v)), 1800)
+    createCashOrder.mutate(
+      { clientId: client!.id, lines: [{ type: 'STOCK_PURCHASE', refId: id }] },
+      {
+        onSuccess: (order) => {
+          setBoughtId(id)
+          setPendingOrder(order)
+          setTimeout(() => setBoughtId((v) => (v === id ? null : v)), 1800)
+        },
       },
-    })
+    )
+  }
+
+  function rent(lockerId: string) {
+    createCashOrder.mutate(
+      { clientId: client!.id, lines: [{ type: 'LOCKER_RENTAL', refId: lockerId, meta: { days } }] },
+      { onSuccess: setPendingOrder },
+    )
   }
 
   return (
@@ -71,7 +85,7 @@ export function ShopPage() {
               {freeLockers.slice(0, 12).map((l) => (
                 <button
                   key={l.id}
-                  onClick={() => rentLocker.mutate({ lockerId: l.id, days })}
+                  onClick={() => rent(l.id)}
                   className="tap-scale flex flex-col items-center gap-1 rounded-xl border border-[var(--border)] bg-[var(--surface-raised)] py-3 hover:border-[var(--accent)]"
                 >
                   <LockOpen size={16} className="text-[var(--text-faint)]" />
@@ -101,7 +115,7 @@ export function ShopPage() {
                   <span className="text-sm text-[var(--text-muted)]">{item.price} ₽</span>
                 </div>
                 <Button size="sm" className="w-full" onClick={() => buy(item.id)}>
-                  {boughtId === item.id ? 'Куплено ✓' : 'Купить'}
+                  {boughtId === item.id ? 'Заказано ✓' : 'Купить'}
                 </Button>
               </Card>
             ))}
@@ -121,14 +135,16 @@ export function ShopPage() {
                   <span className="text-sm text-[var(--text-muted)]">{item.price} ₽</span>
                 </div>
                 <Button size="sm" className="w-full" onClick={() => buy(item.id)}>
-                  {boughtId === item.id ? 'Куплено ✓' : 'Купить'}
+                  {boughtId === item.id ? 'Заказано ✓' : 'Купить'}
                 </Button>
               </Card>
             ))}
         </div>
       </section>
 
-      <Badge tone="neutral">Последние покупки видны в отчёте по выручке в приложении «CEO»</Badge>
+      {pendingOrder && <OrderPendingNotice order={pendingOrder} onDismiss={() => setPendingOrder(null)} />}
+
+      <Badge tone="neutral">Оплата — наличными администратору на ресепшене, после сканирования чека</Badge>
     </div>
   )
 }

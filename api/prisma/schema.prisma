@@ -21,27 +21,28 @@ model Gym {
   name      String
   createdAt DateTime @default(now()) @map("created_at")
 
-  users               User[]
-  clients             Client[]
-  trainers            Trainer[]
-  exercises           Exercise[]
-  groupClasses        GroupClass[]
-  personalSlots       PersonalSlot[]
-  lockers             Locker[]
-  catalogItems        CatalogItem[]
-  transactions        Transaction[]
-  clubPosts           ClubPost[]
-  stockBatches        StockBatch[]
-  stockWriteoffs      StockWriteoff[]
-  stockReceipts       StockReceipt[]
-  inventoryCounts     InventoryCount[]
-  equipment           Equipment[]
-  cleaningChecklists  CleaningChecklist[]
-  directorMessages    DirectorMessage[]
-  reportOffers        ReportOffer[]
-  activityLogEntries  ActivityLogEntry[]
-  outreachNotes       OutreachNote[]
-  pricing             MembershipPricing?
+  users              User[]
+  clients            Client[]
+  trainers           Trainer[]
+  exercises          Exercise[]
+  groupClasses       GroupClass[]
+  personalSlots      PersonalSlot[]
+  lockers            Locker[]
+  catalogItems       CatalogItem[]
+  transactions       Transaction[]
+  clubPosts          ClubPost[]
+  stockBatches       StockBatch[]
+  stockWriteoffs     StockWriteoff[]
+  stockReceipts      StockReceipt[]
+  inventoryCounts    InventoryCount[]
+  equipment          Equipment[]
+  cleaningChecklists CleaningChecklist[]
+  directorMessages   DirectorMessage[]
+  reportOffers       ReportOffer[]
+  activityLogEntries ActivityLogEntry[]
+  outreachNotes      OutreachNote[]
+  pricing            MembershipPricing?
+  orders             Order[]
 
   @@map("gyms")
 }
@@ -98,11 +99,11 @@ enum Tariff {
 }
 
 model Client {
-  id        String       @id @default(cuid())
-  gymId     String       @map("gym_id")
-  gym       Gym          @relation(fields: [gymId], references: [id])
-  userId    String?      @unique @map("user_id")
-  user      User?        @relation(fields: [userId], references: [id])
+  id     String  @id @default(cuid())
+  gymId  String  @map("gym_id")
+  gym    Gym     @relation(fields: [gymId], references: [id])
+  userId String? @unique @map("user_id")
+  user   User?   @relation(fields: [userId], references: [id])
 
   name            String
   gender          Gender
@@ -118,20 +119,21 @@ model Client {
   profilePhotoUrl String?      @map("profile_photo_url")
   splitPlan       String[]     @map("split_plan")
 
-  membership       Membership?
-  formatHistory    ClientFormatHistoryEntry[]
-  program          Program?
-  workoutLogs      WorkoutLogEntry[]
-  progressPhotos   ProgressPhoto[]
-  measurements     Measurement[]
-  cycleLogs        CycleLog[]
-  feedbackMessages FeedbackMessage[]
-  directorMessages DirectorMessage[]
-  outreachNotes    OutreachNote[]
-  transactions     Transaction[]
+  membership         Membership?
+  formatHistory      ClientFormatHistoryEntry[]
+  program            Program?
+  workoutLogs        WorkoutLogEntry[]
+  progressPhotos     ProgressPhoto[]
+  measurements       Measurement[]
+  cycleLogs          CycleLog[]
+  feedbackMessages   FeedbackMessage[]
+  directorMessages   DirectorMessage[]
+  outreachNotes      OutreachNote[]
+  transactions       Transaction[]
   groupClassBookings GroupClassBooking[]
-  personalSlots    PersonalSlot[]
-  lockerRentals    Locker[]
+  personalSlots      PersonalSlot[]
+  lockerRentals      Locker[]
+  orders             Order[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -158,15 +160,15 @@ enum MembershipStatus {
 // (история смен абонемента не нужна отдельной таблицей: каждая покупка
 // просто перезаписывает эти поля, как и в демо-версии).
 model Membership {
-  id           String            @id @default(cuid())
-  clientId     String            @unique @map("client_id")
-  client       Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  type         MembershipType
-  purchasedAt  DateTime          @map("purchased_at")
-  expiresAt    DateTime?         @db.Date @map("expires_at")
-  visitsTotal  Int?              @map("visits_total")
-  visitsLeft   Int?              @map("visits_left")
-  status       MembershipStatus  @default(ACTIVE)
+  id          String           @id @default(cuid())
+  clientId    String           @unique @map("client_id")
+  client      Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  type        MembershipType
+  purchasedAt DateTime         @map("purchased_at")
+  expiresAt   DateTime?        @map("expires_at") @db.Date
+  visitsTotal Int?             @map("visits_total")
+  visitsLeft  Int?             @map("visits_left")
+  status      MembershipStatus @default(ACTIVE)
 
   @@map("memberships")
 }
@@ -190,28 +192,28 @@ model ClientFormatHistoryEntry {
 // --- Тренер ---
 
 model Trainer {
-  id             String   @id @default(cuid())
-  gymId          String   @map("gym_id")
-  gym            Gym      @relation(fields: [gymId], references: [id])
-  userId         String?  @unique @map("user_id")
-  user           User?    @relation(fields: [userId], references: [id])
+  id     String  @id @default(cuid())
+  gymId  String  @map("gym_id")
+  gym    Gym     @relation(fields: [gymId], references: [id])
+  userId String? @unique @map("user_id")
+  user   User?   @relation(fields: [userId], references: [id])
 
-  name                String
-  avatarHue           Int      @default(210) @map("avatar_hue")
-  specialization      String
-  bio                 String?
-  fullBio             String?  @map("full_bio")
-  experienceYears     Int      @default(0) @map("experience_years")
+  name                 String
+  avatarHue            Int     @default(210) @map("avatar_hue")
+  specialization       String
+  bio                  String?
+  fullBio              String? @map("full_bio")
+  experienceYears      Int     @default(0) @map("experience_years")
   personalSessionPrice Int     @map("personal_session_price")
-  externalUrl         String?  @map("external_url")
+  externalUrl          String? @map("external_url")
 
-  clients        Client[]
-  workHours      TrainerWorkHour[]
-  credentials    TrainerCredential[]
+  clients           Client[]
+  workHours         TrainerWorkHour[]
+  credentials       TrainerCredential[]
   competitionPhotos TrainerCompetitionPhoto[]
-  groupClasses   GroupClass[]
-  personalSlots  PersonalSlot[]
-  transactions   Transaction[]
+  groupClasses      GroupClass[]
+  personalSlots     PersonalSlot[]
+  transactions      Transaction[]
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -264,18 +266,18 @@ enum MuscleGroup {
 }
 
 model Exercise {
-  id           String      @id @default(cuid())
-  gymId        String      @map("gym_id")
-  gym          Gym         @relation(fields: [gymId], references: [id])
-  name         String
-  muscleGroup  MuscleGroup @map("muscle_group")
-  defaultSets  Int         @map("default_sets")
-  defaultReps  String      @map("default_reps")
-  defaultLoad  String      @map("default_load")
-  technique    String?
-  equipment    String?
-  imageUrl          String? @map("image_url")
-  imageAttribution  String? @map("image_attribution")
+  id               String      @id @default(cuid())
+  gymId            String      @map("gym_id")
+  gym              Gym         @relation(fields: [gymId], references: [id])
+  name             String
+  muscleGroup      MuscleGroup @map("muscle_group")
+  defaultSets      Int         @map("default_sets")
+  defaultReps      String      @map("default_reps")
+  defaultLoad      String      @map("default_load")
+  technique        String?
+  equipment        String?
+  imageUrl         String?     @map("image_url")
+  imageAttribution String?     @map("image_attribution")
 
   @@index([gymId])
   @@map("exercises")
@@ -286,11 +288,11 @@ model Exercise {
 // / updateClientProgram в демо-версии, где программа — это одна запись,
 // которая целиком перезаписывается).
 model Program {
-  id          String   @id @default(cuid())
-  clientId    String   @unique @map("client_id")
-  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  assignedBy  String   @map("assigned_by") // 'trainer' | 'self'
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id         String   @id @default(cuid())
+  clientId   String   @unique @map("client_id")
+  client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  assignedBy String   @map("assigned_by") // 'trainer' | 'self'
+  updatedAt  DateTime @updatedAt @map("updated_at")
 
   days ProgramDay[]
 
@@ -298,11 +300,11 @@ model Program {
 }
 
 model ProgramDay {
-  id        String   @id @default(cuid())
-  programId String   @map("program_id")
-  program   Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+  id        String  @id @default(cuid())
+  programId String  @map("program_id")
+  program   Program @relation(fields: [programId], references: [id], onDelete: Cascade)
   label     String
-  order     Int      @default(0)
+  order     Int     @default(0)
 
   entries ProgramExerciseEntry[]
 
@@ -364,14 +366,14 @@ model WorkoutExerciseLog {
 }
 
 model WorkoutSetLog {
-  id          String              @id @default(cuid())
-  exerciseLogId String            @map("exercise_log_id")
-  exerciseLog WorkoutExerciseLog  @relation(fields: [exerciseLogId], references: [id], onDelete: Cascade)
-  reps        String
-  load        String
-  completed   Boolean
-  effort      EffortLevel?
-  restSeconds Int?                @map("rest_seconds")
+  id            String             @id @default(cuid())
+  exerciseLogId String             @map("exercise_log_id")
+  exerciseLog   WorkoutExerciseLog @relation(fields: [exerciseLogId], references: [id], onDelete: Cascade)
+  reps          String
+  load          String
+  completed     Boolean
+  effort        EffortLevel?
+  restSeconds   Int?               @map("rest_seconds")
 
   @@map("workout_set_logs")
 }
@@ -443,15 +445,15 @@ enum LockerStatus {
 }
 
 model Locker {
-  id           String       @id @default(cuid())
-  gymId        String       @map("gym_id")
-  gym          Gym          @relation(fields: [gymId], references: [id])
-  number       Int
-  status       LockerStatus @default(FREE)
-  rentedBy     String?      @map("rented_by")
-  client       Client?      @relation(fields: [rentedBy], references: [id])
-  rentedUntil  DateTime?    @db.Date @map("rented_until")
-  pricePerDay  Int          @map("price_per_day")
+  id          String       @id @default(cuid())
+  gymId       String       @map("gym_id")
+  gym         Gym          @relation(fields: [gymId], references: [id])
+  number      Int
+  status      LockerStatus @default(FREE)
+  rentedBy    String?      @map("rented_by")
+  client      Client?      @relation(fields: [rentedBy], references: [id])
+  rentedUntil DateTime?    @map("rented_until") @db.Date
+  pricePerDay Int          @map("price_per_day")
 
   @@index([gymId])
   @@map("lockers")
@@ -481,6 +483,95 @@ model CatalogItem {
   @@map("catalog_items")
 }
 
+// --- Заказы и подтверждение оплаты чеком (P0.2, 54-ФЗ) ---
+//
+// Раньше денежные действия (продление абонемента, смена тарифа, покупка
+// товара, аренда шкафчика, запись на занятие) сразу создавали Transaction —
+// система верила администратору на слово, что деньги реально приняты.
+// Order — промежуточная сущность: деньги считаются принятыми и все связанные
+// действия (продление абонемента, бронирование слота и т.д.) применяются
+// ТОЛЬКО после того, как реальный кассовый чек отсканирован и его сумма
+// сверена с суммой заказа. Ничего не применяется заранее — это осознанно
+// выбранная более безопасная из двух стратегий, описанных в P0.2.
+enum OrderStatus {
+  DRAFT // собирается (позиции добавлены, оплата ещё не запрошена)
+  AWAITING_PAYMENT // администратор нажал "оплата наличными", ждём скан чека
+  PAID // чек отсканирован и сумма совпала — все позиции применены
+  CANCELLED // отменено вручную (клиент передумал, администратор ошибся)
+  EXPIRED // истёк таймаут ожидания оплаты — никто не подтвердил чек
+}
+
+enum OrderPaymentMethod {
+  CASH // наличные/карта на физическом терминале администратора — оба подтверждаются одинаково, сканом чека
+  CARD_ONLINE // самостоятельная оплата картой в приложении — появится с P2.9, пока не используется
+}
+
+// Тип позиции заказа. Один заказ может содержать несколько позиций разных
+// типов (пример из ТЗ: продление абонемента + покупка воды одним чеком).
+enum OrderLineType {
+  MEMBERSHIP_PURCHASE
+  MEMBERSHIP_RENEWAL
+  TARIFF_CHANGE
+  STOCK_PURCHASE
+  LOCKER_RENTAL
+  GROUP_CLASS_BOOKING
+  PERSONAL_SLOT_BOOKING
+}
+
+model Order {
+  id        String @id @default(cuid())
+  gymId     String @map("gym_id")
+  gym       Gym    @relation(fields: [gymId], references: [id])
+  clientId  String @map("client_id")
+  client    Client @relation(fields: [clientId], references: [id])
+  createdBy String @map("created_by") // userId того, кто собрал заказ — видимость и право закрыть не привязаны к нему намертво (P0.2)
+
+  status        OrderStatus         @default(DRAFT)
+  paymentMethod OrderPaymentMethod? @map("payment_method")
+  totalAmount   Int                 @map("total_amount") // сумма всех строк на момент СОЗДАНИЯ заказа — ценовой снэпшот, не пересчитывается при оплате
+
+  // Сырые и разобранные данные фискального чека (формат ФНС:
+  // t=<дата-время>&s=<сумма>&fn=<номер ФН>&i=<номер документа>&fp=<фискальный признак>&n=<тип операции>).
+  // Уникальность fn+i+fp — единственная защита от повторного использования одного чека на два заказа.
+  receiptRaw  String?   @map("receipt_raw")
+  receiptDate DateTime? @map("receipt_date")
+  receiptFn   String?   @map("receipt_fn")
+  receiptI    String?   @map("receipt_i")
+  receiptFp   String?   @map("receipt_fp")
+
+  expiresAt    DateTime? @map("expires_at") // после этого момента "брошенный" AWAITING_PAYMENT заказ автоматически становится EXPIRED
+  paidAt       DateTime? @map("paid_at")
+  cancelledAt  DateTime? @map("cancelled_at")
+  cancelReason String?   @map("cancel_reason")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  lines        OrderLine[]
+  transactions Transaction[]
+
+  // NULL != NULL в Postgres — несколько ещё не оплаченных заказов с пустыми
+  // реквизитами чека спокойно сосуществуют, ограничение реально срабатывает
+  // только когда все три поля заполнены реальным чеком.
+  @@unique([receiptFn, receiptI, receiptFp])
+  @@index([gymId])
+  @@index([clientId])
+  @@index([status])
+  @@map("orders")
+}
+
+model OrderLine {
+  id      String        @id @default(cuid())
+  orderId String        @map("order_id")
+  order   Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  type    OrderLineType
+  refId   String?       @map("ref_id") // id связанной сущности (тренер/товар/шкафчик/занятие/слот), смысл зависит от type
+  amount  Int // цена этой позиции на момент СОЗДАНИЯ заказа
+  meta    Json? // доп. данные, нужные для применения позиции при оплате (membershipType, tariff, дни аренды и т.п.)
+
+  @@map("order_lines")
+}
+
 // --- Финансы ---
 
 enum TransactionCategory {
@@ -502,6 +593,8 @@ model Transaction {
   trainerId   String?             @map("trainer_id")
   trainer     Trainer?            @relation(fields: [trainerId], references: [id])
   description String
+  orderId     String?             @map("order_id") // источник — заказ, подтверждённый чеком (P0.2); null для старых записей, созданных до этой версии
+  order       Order?              @relation(fields: [orderId], references: [id])
 
   @@index([gymId])
   @@index([clientId])
@@ -609,18 +702,18 @@ model ProgressPhoto {
 // --- Замеры ---
 
 model Measurement {
-  id               String   @id @default(cuid())
-  clientId         String   @map("client_id")
-  client           Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  date             DateTime @default(now())
-  weightKg         Float?   @map("weight_kg")
-  bodyFatPercent   Float?   @map("body_fat_percent")
-  muscleMassKg     Float?   @map("muscle_mass_kg")
-  waterPercent     Float?   @map("water_percent")
-  visceralFat      Float?   @map("visceral_fat")
-  chestCm          Float?   @map("chest_cm")
-  waistCm          Float?   @map("waist_cm")
-  hipsCm           Float?   @map("hips_cm")
+  id             String   @id @default(cuid())
+  clientId       String   @map("client_id")
+  client         Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  date           DateTime @default(now())
+  weightKg       Float?   @map("weight_kg")
+  bodyFatPercent Float?   @map("body_fat_percent")
+  muscleMassKg   Float?   @map("muscle_mass_kg")
+  waterPercent   Float?   @map("water_percent")
+  visceralFat    Float?   @map("visceral_fat")
+  chestCm        Float?   @map("chest_cm")
+  waistCm        Float?   @map("waist_cm")
+  hipsCm         Float?   @map("hips_cm")
 
   @@index([clientId])
   @@map("measurements")
@@ -653,8 +746,8 @@ model StockBatch {
   catalogItem   CatalogItem   @relation(fields: [catalogItemId], references: [id])
   location      StockLocation
   quantity      Int
-  receivedAt    DateTime      @db.Date @map("received_at")
-  expiresAt     DateTime      @db.Date @map("expires_at")
+  receivedAt    DateTime      @map("received_at") @db.Date
+  expiresAt     DateTime      @map("expires_at") @db.Date
 
   @@index([gymId])
   @@index([catalogItemId])
@@ -671,17 +764,17 @@ enum WriteoffReason {
 }
 
 model StockWriteoff {
-  id            String        @id @default(cuid())
-  gymId         String        @map("gym_id")
-  gym           Gym           @relation(fields: [gymId], references: [id])
-  catalogItemId String        @map("catalog_item_id")
-  catalogItem   CatalogItem   @relation(fields: [catalogItemId], references: [id])
+  id            String         @id @default(cuid())
+  gymId         String         @map("gym_id")
+  gym           Gym            @relation(fields: [gymId], references: [id])
+  catalogItemId String         @map("catalog_item_id")
+  catalogItem   CatalogItem    @relation(fields: [catalogItemId], references: [id])
   location      StockLocation
   quantity      Int
   reason        WriteoffReason
   comment       String?
-  date          DateTime      @default(now())
-  authorId      String        @map("author_id")
+  date          DateTime       @default(now())
+  authorId      String         @map("author_id")
 
   @@index([gymId])
   @@map("stock_writeoffs")
@@ -703,11 +796,11 @@ model StockReceipt {
 }
 
 model InventoryCount {
-  id        String   @id @default(cuid())
-  gymId     String   @map("gym_id")
-  gym       Gym      @relation(fields: [gymId], references: [id])
-  date      DateTime @default(now())
-  authorId  String   @map("author_id")
+  id       String   @id @default(cuid())
+  gymId    String   @map("gym_id")
+  gym      Gym      @relation(fields: [gymId], references: [id])
+  date     DateTime @default(now())
+  authorId String   @map("author_id")
 
   entries InventoryCountEntry[]
 
@@ -739,17 +832,17 @@ enum EquipmentCategory {
 }
 
 model Equipment {
-  id               String            @id @default(cuid())
-  gymId            String            @map("gym_id")
-  gym              Gym               @relation(fields: [gymId], references: [id])
-  name             String
-  category         EquipmentCategory
-  zone             String
-  responsibleName  String            @map("responsible_name")
-  lastServiceDate  DateTime          @db.Date @map("last_service_date")
-  nextServiceDate  DateTime          @db.Date @map("next_service_date")
-  intervalDays     Int               @map("interval_days")
-  warrantyUntil    DateTime?         @db.Date @map("warranty_until")
+  id              String            @id @default(cuid())
+  gymId           String            @map("gym_id")
+  gym             Gym               @relation(fields: [gymId], references: [id])
+  name            String
+  category        EquipmentCategory
+  zone            String
+  responsibleName String            @map("responsible_name")
+  lastServiceDate DateTime          @map("last_service_date") @db.Date
+  nextServiceDate DateTime          @map("next_service_date") @db.Date
+  intervalDays    Int               @map("interval_days")
+  warrantyUntil   DateTime?         @map("warranty_until") @db.Date
 
   @@index([gymId])
   @@map("equipment")
@@ -794,16 +887,16 @@ model CleaningChecklistItem {
 // --- Обратная связь директору ---
 
 model DirectorMessage {
-  id                 String    @id @default(cuid())
-  gymId              String    @map("gym_id")
-  gym                Gym       @relation(fields: [gymId], references: [id])
-  clientId           String    @map("client_id")
-  client             Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  date               DateTime  @default(now())
-  text               String
-  reply              String?
-  repliedAt          DateTime? @map("replied_at")
-  replySeenByClient  Boolean   @default(true) @map("reply_seen_by_client")
+  id                String    @id @default(cuid())
+  gymId             String    @map("gym_id")
+  gym               Gym       @relation(fields: [gymId], references: [id])
+  clientId          String    @map("client_id")
+  client            Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  date              DateTime  @default(now())
+  text              String
+  reply             String?
+  repliedAt         DateTime? @map("replied_at")
+  replySeenByClient Boolean   @default(true) @map("reply_seen_by_client")
 
   @@index([gymId])
   @@map("director_messages")
@@ -834,16 +927,16 @@ model ReportOffer {
 // --- Журнал изменений (аудит для CEO) ---
 
 model ActivityLogEntry {
-  id         String   @id @default(cuid())
-  gymId      String   @map("gym_id")
-  gym        Gym      @relation(fields: [gymId], references: [id])
-  date       DateTime @default(now())
-  actorId    String   @map("actor_id")
-  actorRole  Role     @map("actor_role")
-  actorName  String   @map("actor_name")
-  action     String
-  target     String
-  details    String
+  id        String   @id @default(cuid())
+  gymId     String   @map("gym_id")
+  gym       Gym      @relation(fields: [gymId], references: [id])
+  date      DateTime @default(now())
+  actorId   String   @map("actor_id")
+  actorRole Role     @map("actor_role")
+  actorName String   @map("actor_name")
+  action    String
+  target    String
+  details   String
 
   @@index([gymId])
   @@index([date])

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { LockersService } from './lockers.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -15,17 +15,6 @@ export class LockersController {
   @Get()
   findAll(@CurrentUser() user: JwtPayload) {
     return this.lockers.findAll(user.gymId);
-  }
-
-  @Roles(Role.CEO, Role.STAFF, Role.CLIENT)
-  @Post(':id/rent')
-  rent(
-    @Param('id') id: string,
-    @Body('days') days: number,
-    @Body('clientId') clientId: string | undefined,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    return this.lockers.rent(user, id, days, clientId);
   }
 
   @Roles(Role.CEO, Role.STAFF)

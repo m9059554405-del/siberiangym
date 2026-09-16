@@ -2,8 +2,6 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CalendarDays, List, Lock } from 'lucide-react'
 import {
-  useBookGroupClass,
-  useBookPersonalSlot,
   useCancelGroupClassBooking,
   useCancelPersonalSlot,
   useGroupClasses,
@@ -11,10 +9,13 @@ import {
   usePersonalSlots,
   useTrainers,
 } from '../../hooks/useClientApi'
+import { useCreateCashOrder } from '../../hooks/useOrdersApi'
 import { tariffUnlocksPersonalSlots } from '../../data/tariffs'
 import { MonthCalendarGrid } from '../../components/MonthCalendarGrid'
 import { Badge, Button, Card, EmptyState, Tabs } from '../../components/ui/Primitives'
+import { OrderPendingNotice } from '../../components/OrderPendingNotice'
 import { formatDateLabel, formatMoney } from '../../lib/format'
+import type { Order } from '../../types'
 
 function todayIso(): string {
   const d = new Date()
@@ -26,9 +27,8 @@ export function CalendarPage() {
   const { data: trainers } = useTrainers()
   const { data: groupClasses } = useGroupClasses()
   const { data: personalSlots } = usePersonalSlots()
-  const bookGroupClass = useBookGroupClass()
+  const createCashOrder = useCreateCashOrder()
   const cancelGroupClassBooking = useCancelGroupClassBooking()
-  const bookPersonalSlot = useBookPersonalSlot()
   const cancelPersonalSlot = useCancelPersonalSlot()
 
   const [tab, setTab] = useState<'group' | 'personal'>('group')
@@ -36,6 +36,17 @@ export function CalendarPage() {
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list')
   const [monthAnchor, setMonthAnchor] = useState(() => new Date())
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [pendingOrder, setPendingOrder] = useState<Order | null>(null)
+
+  function bookGroupClass(classId: string) {
+    if (!client) return
+    createCashOrder.mutate({ clientId: client.id, lines: [{ type: 'GROUP_CLASS_BOOKING', refId: classId }] }, { onSuccess: setPendingOrder })
+  }
+
+  function bookPersonalSlot(slotId: string) {
+    if (!client) return
+    createCashOrder.mutate({ clientId: client.id, lines: [{ type: 'PERSONAL_SLOT_BOOKING', refId: slotId }] }, { onSuccess: setPendingOrder })
+  }
 
   const trainer = trainers?.find((t) => t.id === client?.trainerId)
   const hasIndividual = tariffUnlocksPersonalSlots(client?.tariff)
@@ -89,6 +100,7 @@ export function CalendarPage() {
 
   return (
     <div className="flex flex-col gap-4 pt-1">
+      {pendingOrder && <OrderPendingNotice order={pendingOrder} onDismiss={() => setPendingOrder(null)} />}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold">Календарь</h1>
@@ -176,7 +188,7 @@ export function CalendarPage() {
                   size="sm"
                   variant={booked ? 'danger' : 'primary'}
                   disabled={!booked && full}
-                  onClick={() => (booked ? cancelGroupClassBooking.mutate(gc.id) : bookGroupClass.mutate(gc.id))}
+                  onClick={() => (booked ? cancelGroupClassBooking.mutate(gc.id) : bookGroupClass(gc.id))}
                 >
                   {booked ? 'Отменить' : full ? 'Нет мест' : 'Записаться'}
                 </Button>
@@ -234,7 +246,7 @@ export function CalendarPage() {
                     <Button
                       size="sm"
                       variant={isMine ? 'danger' : 'primary'}
-                      onClick={() => (isMine ? cancelPersonalSlot.mutate(slot.id) : bookPersonalSlot.mutate(slot.id))}
+                      onClick={() => (isMine ? cancelPersonalSlot.mutate(slot.id) : bookPersonalSlot(slot.id))}
                     >
                       {isMine ? 'Отменить' : 'Записаться'}
                     </Button>

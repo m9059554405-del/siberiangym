@@ -11,12 +11,10 @@ import type {
   Locker,
   Measurement,
   MembershipPricing,
-  MembershipType,
   PersonalSlot,
   Program,
   ProgramDay,
   ProgressPhoto,
-  Tariff,
   Trainer,
   WorkoutLogEntry,
 } from '../types'
@@ -112,29 +110,10 @@ function useInvalidate(keys: (string | undefined)[][]) {
   return () => keys.forEach((k) => qc.invalidateQueries({ queryKey: k }))
 }
 
-export function usePurchaseMembership(clientId: string | undefined) {
-  const invalidate = useInvalidate([['me']])
-  return useMutation({
-    mutationFn: (type: MembershipType) => api.post<Client>(`/clients/${clientId}/purchase-membership`, { type }),
-    onSuccess: invalidate,
-  })
-}
-
-export function useChangeTariff(clientId: string | undefined) {
-  const invalidate = useInvalidate([['me']])
-  return useMutation({
-    mutationFn: (tariff: Tariff) => api.post<Client>(`/clients/${clientId}/change-tariff`, { tariff }),
-    onSuccess: invalidate,
-  })
-}
-
-export function useChooseTrainer(clientId: string | undefined) {
-  const invalidate = useInvalidate([['me']])
-  return useMutation({
-    mutationFn: (vars: { trainerId: string; tariff: Tariff }) => api.post<Client>(`/clients/${clientId}/choose-trainer`, vars),
-    onSuccess: invalidate,
-  })
-}
+// Оформление/продление абонемента, смена тарифа и выбор тренера — платные
+// действия, с P0.2 идут через заказ с подтверждением оплаты чеком, а не
+// применяются мгновенно. См. useCreateCashOrder в hooks/useOrdersApi.ts —
+// именно им теперь пользуются PaymentsPage/TrainerSelectionPage/ClientsManagePage.
 
 export function useGoSelfTraining(clientId: string | undefined) {
   const invalidate = useInvalidate([['me']])
@@ -160,13 +139,8 @@ export function useMarkDirectorMessagesSeen() {
   })
 }
 
-export function useBookGroupClass() {
-  const invalidate = useInvalidate([['group-classes']])
-  return useMutation({
-    mutationFn: (classId: string) => api.post<GroupClass>(`/group-classes/${classId}/book`),
-    onSuccess: invalidate,
-  })
-}
+// Запись на групповое занятие — платное действие, с P0.2 идёт через заказ
+// (useCreateCashOrder), см. CalendarPage.tsx.
 
 export function useCancelGroupClassBooking() {
   const invalidate = useInvalidate([['group-classes']])
@@ -176,13 +150,8 @@ export function useCancelGroupClassBooking() {
   })
 }
 
-export function useBookPersonalSlot() {
-  const invalidate = useInvalidate([['personal-slots']])
-  return useMutation({
-    mutationFn: (slotId: string) => api.post<PersonalSlot>(`/personal-slots/${slotId}/book`),
-    onSuccess: invalidate,
-  })
-}
+// Запись на персональный слот — платное действие, с P0.2 идёт через заказ
+// (useCreateCashOrder), см. CalendarPage.tsx.
 
 export function useCancelPersonalSlot() {
   const invalidate = useInvalidate([['personal-slots']])
@@ -192,19 +161,8 @@ export function useCancelPersonalSlot() {
   })
 }
 
-export function useRentLocker() {
-  const invalidate = useInvalidate([['lockers']])
-  return useMutation({
-    mutationFn: (vars: { lockerId: string; days: number }) => api.post<Locker>(`/lockers/${vars.lockerId}/rent`, { days: vars.days }),
-    onSuccess: invalidate,
-  })
-}
-
-export function usePurchaseCatalogItem() {
-  return useMutation({
-    mutationFn: (catalogItemId: string) => api.post('/stock/purchase', { catalogItemId }),
-  })
-}
+// Аренда шкафчика и покупка товара со склада — платные действия, с P0.2 идут
+// через заказ (useCreateCashOrder), см. ShopPage.tsx.
 
 export function useReleaseLocker() {
   const invalidate = useInvalidate([['lockers']])

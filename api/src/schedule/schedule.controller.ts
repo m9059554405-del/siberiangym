@@ -26,12 +26,6 @@ export class ScheduleController {
   }
 
   @Roles(Role.CEO, Role.STAFF, Role.CLIENT)
-  @Post('group-classes/:id/book')
-  bookGroupClass(@Param('id') id: string, @Body('clientId') clientId: string | undefined, @CurrentUser() user: JwtPayload) {
-    return this.schedule.bookGroupClass(user, id, clientId);
-  }
-
-  @Roles(Role.CEO, Role.STAFF, Role.CLIENT)
   @Post('group-classes/:id/cancel')
   cancelGroupClassBooking(@Param('id') id: string, @Body('clientId') clientId: string | undefined, @CurrentUser() user: JwtPayload) {
     return this.schedule.cancelGroupClassBooking(user, id, clientId);
@@ -46,12 +40,6 @@ export class ScheduleController {
   @Post('personal-slots')
   createPersonalSlot(@Body() dto: CreatePersonalSlotDto, @CurrentUser() user: JwtPayload) {
     return this.schedule.createPersonalSlot(user, dto);
-  }
-
-  @Roles(Role.CEO, Role.STAFF, Role.CLIENT)
-  @Post('personal-slots/:id/book')
-  bookPersonalSlot(@Param('id') id: string, @Body('clientId') clientId: string | undefined, @CurrentUser() user: JwtPayload) {
-    return this.schedule.bookPersonalSlot(user, id, clientId);
   }
 
   @Roles(Role.CEO, Role.STAFF, Role.CLIENT)
