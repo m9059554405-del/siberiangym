@@ -1,0 +1,22 @@
+# TLS-терминатор перед приложением (P0.3) — управляется переменной DOMAIN
+# из .env.prod (см. docker-compose.prod.yml). ADDR вычисляется из DOMAIN
+# в caddy-entrypoint.sh (обычный Caddyfile-плейсхолдер {$VAR:default}
+# здесь не подходит — он подставляет default, только если переменная НЕ
+# задана вообще, а Docker Compose всегда передаёт DOMAIN как заданную,
+# пусть и пустую строку). Пусто/не задан — :80 без TLS (работа по IP);
+# реальный домен — автоматический HTTPS с Let's Encrypt.
+{$ADDR} {
+	reverse_proxy web:80
+
+	encode gzip
+
+	# HSTS безопасно отправлять всегда: браузеры применяют его только
+	# когда ответ пришёл по настоящему HTTPS-соединению, по обычному HTTP
+	# заголовок просто игнорируется — не мешает работе по IP без домена.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+}

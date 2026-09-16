@@ -1,11 +1,31 @@
 # Продакшн-развёртывание одним docker compose на VPS: Postgres + API + web
-# (nginx). Домен и HTTPS — отдельно, когда определится домен (см. README):
-# проще всего поставить Caddy или nginx-хоста с certbot перед портом 80
-# сервиса web, ничего внутри этого файла менять не придётся.
+# (nginx) + Caddy (TLS-терминатор, P0.3).
+#
+# HTTPS/домен — управляется одной переменной DOMAIN в .env.prod:
+# пустая (по умолчанию) — Caddy слушает :80 без TLS, приложение доступно
+# по IP как раньше; заполненная реальным доменом (когда его A-запись уже
+# указывает на этот сервер) — Caddy сам получает и продлевает сертификат
+# Let's Encrypt, ничего больше менять не нужно, см. DEPLOY_GUIDE.md, часть 5.
+#
+# Раньше (до 0.17.0) это поведение описывалось в README/DEPLOY_GUIDE.md как
+# "поставьте Caddy на хосте вручную, в docker-compose менять ничего не
+# придётся" — то решение пересмотрено: ручной Caddy на хосте конфликтовал
+# бы за порт 80 с уже запущенным контейнером web (см. CHANGELOG, P0.3) и
+# требовал отдельной установки/апдейтов пакета в обход Docker.
 #
 # Использование:
 #   cp .env.prod.example .env.prod   # и заполнить реальными значениями
 #   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+#
+# name ниже — явное имя проекта Docker Compose, а не техническая деталь:
+# без него Docker Compose берёт имя проекта из имени папки, а `docker-
+# compose.yml` (локальная БД для разработки, в этой же папке) объявляет
+# volume с тем же именем (siberiangym_pg_data) — без явного разного имени
+# проекта у двух файлов оба резолвятся в один и тот же volume, и `up` от
+# одного файла тихо переиспользует (и может пересоздать/сломать доступ к)
+# данные, поднятые другим. Проверено на практике при разработке этого
+# файла — см. CHANGELOG, P0.3.
+name: siberiangym-prod
 
 services:
   postgres:
@@ -47,8 +67,30 @@ services:
     restart: unless-stopped
     depends_on:
       - api
+    # Порт 80 наружу не публикуется — единственная внешняя точка входа
+    # теперь caddy (ниже). web доступен внутри docker-сети как http://web:80.
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - web
     ports:
       - "80:80"
+      - "443:443"
+    environment:
+      # Пустая/незаданная переменная — Caddy слушает :80 без TLS, реальный
+      # домен — включает автоматический HTTPS. Вычисление ADDR из DOMAIN
+      # сделано в caddy-entrypoint.sh (не в самом Caddyfile — см. Caddyfile).
+      DOMAIN: ${DOMAIN:-}
+    entrypoint: ["/bin/sh", "/caddy-entrypoint.sh"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy-entrypoint.sh:/caddy-entrypoint.sh:ro
+      - caddy_data:/data
+      - caddy_config:/config
 
 volumes:
   siberiangym_pg_data:
+  caddy_data:
+  caddy_config:
