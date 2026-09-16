@@ -26,11 +26,18 @@ export function PersonalDataSection() {
 
   if (!texts || !statuses) return null
 
+  // Если клиент несовершеннолетний, сервер понижает required до false для
+  // "взрослых" типов (PDN_ADULT/HEALTH_DATA/ACTIVITY_WAIVER_ADULT) — их за
+  // него подписывает законный представитель через карточку клиента
+  // (GuardianSection, P0.6), не сам ребёнок здесь. Расхождение
+  // text.required (всегда true для этих типов) и status.required (false
+  // для несовершеннолетнего) — единственный сигнал об этом, доступный на
+  // этой странице, поэтому по нему и прячем такие строки.
   const visible = CLIENT_VISIBLE_CONSENT_TYPES.map((type) => ({
     type,
     text: texts.texts.find((t) => t.type === type),
     status: statuses.find((s) => s.type === type),
-  })).filter((v) => v.text && v.status)
+  })).filter((v) => v.text && v.status && !(v.text.required && !v.status.required))
 
   async function downloadExport() {
     const data = await exportData.mutateAsync()
@@ -52,7 +59,7 @@ export function PersonalDataSection() {
             <div key={type} className="flex items-center justify-between gap-3 rounded-lg bg-[var(--surface-sunken)] px-3 py-2.5">
               <div className="min-w-0">
                 <div className="text-sm font-medium">{text!.title}</div>
-                <div className="text-xs text-[var(--text-faint)]">{text!.required ? 'Обязательно для использования приложения' : 'Добровольно'}</div>
+                <div className="text-xs text-[var(--text-faint)]">{status!.required ? 'Обязательно для использования приложения' : 'Добровольно'}</div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <Badge tone={status!.granted ? 'success' : 'neutral'}>{status!.granted ? 'Дано' : 'Не дано'}</Badge>

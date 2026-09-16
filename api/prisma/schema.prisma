@@ -21,6 +21,13 @@ model Gym {
   name      String
   createdAt DateTime @default(now()) @map("created_at")
 
+  // Возраст, с которого клиент зала может тренироваться самостоятельно, без
+  // тренера (P0.6) — «настраиваемое значение на уровне зала/сети», как
+  // явно требует задача (некоторые клубы разрешают с 16). До появления
+  // сети (P1) это настройка на уровне Gym — единственного уровня
+  // группировки, который сейчас есть.
+  selfTrainingMinAge Int @default(18) @map("self_training_min_age")
+
   users              User[]
   clients            Client[]
   trainers           Trainer[]
@@ -45,6 +52,7 @@ model Gym {
   orders             Order[]
   refunds            Refund[]
   consentRecords     ConsentRecord[]
+  guardians          Guardian[]
 
   @@map("gyms")
 }
@@ -137,6 +145,12 @@ model Client {
   lockerRentals      Locker[]
   orders             Order[]
   consentRecords     ConsentRecord[]
+  guardianLinks      GuardianChild[]
+  // Необязательная обратная связь — если этот клиент сам является чьим-то
+  // законным представителем (родитель, тоже тренирующийся в клубе), у него
+  // есть привязанная карточка Guardian (P0.6). Guardian.linkedClientId
+  // ссылается сюда.
+  guardianProfile    Guardian?
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1049,19 +1063,70 @@ enum ConsentType {
 // createdAt. Не путать с P0.7 (Refund) — это другой журнал, здесь про
 // согласие на обработку данных, а не про деньги.
 model ConsentRecord {
-  id        String      @id @default(cuid())
-  gymId     String      @map("gym_id")
-  gym       Gym         @relation(fields: [gymId], references: [id])
-  clientId  String      @map("client_id")
-  client    Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  type      ConsentType
-  version   String // версия текста согласия на момент этой записи, например "2026-09-14"
-  granted   Boolean // true — дано этой записью, false — отозвано этой записью
-  ipAddress String?     @map("ip_address")
-  userAgent String?     @map("user_agent")
-  createdAt DateTime    @default(now()) @map("created_at")
+  id         String      @id @default(cuid())
+  gymId      String      @map("gym_id")
+  gym        Gym         @relation(fields: [gymId], references: [id])
+  clientId   String      @map("client_id")
+  client     Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  type       ConsentType
+  version    String // версия текста согласия на момент этой записи, например "2026-09-14"
+  granted    Boolean // true — дано этой записью, false — отозвано этой записью
+  ipAddress  String?     @map("ip_address")
+  userAgent  String?     @map("user_agent")
+  // Заполнено только для PDN_MINOR_GUARDIAN/ACTIVITY_WAIVER_MINOR_GUARDIAN
+  // (P0.6) — кто именно из законных представителей дал согласие за
+  // несовершеннолетнего. Для обычных клиентских согласий (subject сам
+  // подтверждает за себя) остаётся null.
+  guardianId String?     @map("guardian_id")
+  guardian   Guardian?   @relation(fields: [guardianId], references: [id])
+  createdAt  DateTime    @default(now()) @map("created_at")
 
   @@index([gymId])
   @@index([clientId, type])
   @@map("consent_records")
+}
+
+// --- Законные представители несовершеннолетних (P0.6) ---
+
+// Законный представитель — отдельная сущность, а не обязательный Client
+// (ГК РФ ст. 26, 28; 152-ФЗ). linkedClientId — необязательная связь на
+// уже существующего Client, если сам представитель тоже тренируется в
+// клубе (не дублируем его контакты второй раз); если нет — Guardian
+// существует как лёгкая запись без абонемента и без входа в приложение.
+model Guardian {
+  id       String  @id @default(cuid())
+  gymId    String  @map("gym_id")
+  gym      Gym     @relation(fields: [gymId], references: [id])
+  fullName String  @map("full_name")
+  phone    String
+  email    String?
+  relation String // человекочитаемое "родитель" / "опекун" и т.п. — справочник на уровне приложения, не enum (по тому же принципу, что GroupClass.type)
+
+  linkedClientId String? @unique @map("linked_client_id")
+  linkedClient   Client? @relation(fields: [linkedClientId], references: [id])
+
+  children GuardianChild[]
+
+  createdAt      DateTime        @default(now()) @map("created_at")
+  consentRecords ConsentRecord[]
+
+  @@index([gymId])
+  @@index([phone])
+  @@map("guardians")
+}
+
+// Связь многие-ко-многим Guardian↔Client: один представитель может вести
+// нескольких детей (братья/сёстры), а по некоторым детям может быть
+// несколько представителей (мама и папа) — оба сценария явно требует P0.6.
+model GuardianChild {
+  id         String   @id @default(cuid())
+  guardianId String   @map("guardian_id")
+  guardian   Guardian @relation(fields: [guardianId], references: [id], onDelete: Cascade)
+  clientId   String   @map("client_id")
+  client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@unique([guardianId, clientId])
+  @@index([clientId])
+  @@map("guardian_children")
 }

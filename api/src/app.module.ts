@@ -26,6 +26,7 @@ import { OrdersModule } from './orders/orders.module';
 import { RefundsModule } from './refunds/refunds.module';
 import { ConsentsModule } from './consents/consents.module';
 import { StorageModule } from './storage/storage.module';
+import { GuardiansModule } from './guardians/guardians.module';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { StorageModule } from './storage/storage.module';
     RefundsModule,
     ConsentsModule,
     StorageModule,
+    GuardiansModule,
   ],
 })
 export class AppModule {}

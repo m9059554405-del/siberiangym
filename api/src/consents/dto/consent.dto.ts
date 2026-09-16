@@ -11,3 +11,13 @@ export class DeletionRequestDto {
   @IsString()
   reason?: string;
 }
+
+// Согласие законного представителя за несовершеннолетнего (P0.6) —
+// оформляет CEO/STAFF, не сам клиент.
+export class GrantMinorConsentDto {
+  @IsString()
+  clientId!: string;
+
+  @IsEnum(ConsentType)
+  type!: ConsentType;
+}

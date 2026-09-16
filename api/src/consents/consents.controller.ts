@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, ParseEnumPipe, Post, Req, UseGuards } fro
 import type { Request } from 'express';
 import { ConsentType, Role } from '@prisma/client';
 import { ConsentsService } from './consents.service';
-import { DeletionRequestDto, GrantConsentDto } from './dto/consent.dto';
+import { DeletionRequestDto, GrantConsentDto, GrantMinorConsentDto } from './dto/consent.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -66,5 +66,14 @@ export class ConsentsController {
   @Get('client/:clientId')
   getForClient(@Param('clientId') clientId: string, @CurrentUser() user: JwtPayload) {
     return this.consents.getClientStatus(user, clientId);
+  }
+
+  // Согласие законного представителя за несовершеннолетнего (P0.6) —
+  // оформляет CEO/STAFF по факту подписанной на месте бумажной формы,
+  // не сам клиент через личный кабинет.
+  @Roles(Role.CEO, Role.STAFF)
+  @Post('guardians/:guardianId/grant')
+  grantForMinor(@Param('guardianId') guardianId: string, @Body() dto: GrantMinorConsentDto, @CurrentUser() user: JwtPayload) {
+    return this.consents.grantForMinor(user, guardianId, dto.clientId, dto.type);
   }
 }

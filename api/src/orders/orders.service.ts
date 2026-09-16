@@ -6,6 +6,7 @@ import { EmailService } from '../email/email.service';
 import { CreateOrderDto, OrderLineInputDto } from './dto/create-order.dto';
 import { formatForTariff, MEMBERSHIP_LABEL, VALIDITY_DAYS, VISITS_TOTAL } from '../clients/membership.const';
 import { TARIFF_NAME, TARIFF_PRICE } from '../clients/tariffs.const';
+import { isMinor as computeIsMinor } from '../clients/age.util';
 import { amountsMatchToKopeck, parseFiscalReceiptQr } from './receipt-qr.util';
 import type { JwtPayload } from '../auth/auth.service';
 
@@ -75,6 +76,42 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
     return order;
   }
 
+  // Оформление абонемента/тарифа несовершеннолетнему требует хотя бы
+  // одного законного представителя с подписанными согласиями (152-ФЗ на
+  // ПДн несовершеннолетнего + информированное согласие на занятия) —
+  // блокируется на уровне сервиса, до того как заказ/транзакция вообще
+  // создастся (P0.6), а не оставлено на усмотрение администратора.
+  private async assertGuardianConsentsIfMinor(gymId: string, clientId: string): Promise<void> {
+    const [client, gym] = await Promise.all([
+      this.prisma.client.findUniqueOrThrow({ where: { id: clientId }, select: { birthday: true } }),
+      this.prisma.gym.findUniqueOrThrow({ where: { id: gymId }, select: { selfTrainingMinAge: true } }),
+    ]);
+    if (!computeIsMinor(client.birthday, gym.selfTrainingMinAge)) return;
+
+    const guardianLinks = await this.prisma.guardianChild.findMany({ where: { clientId }, select: { guardianId: true } });
+    if (guardianLinks.length === 0) {
+      throw new BadRequestException('У несовершеннолетнего клиента нет законного представителя — сначала добавьте его в карточке клиента');
+    }
+
+    const consents = await this.prisma.consentRecord.findMany({
+      where: {
+        clientId,
+        guardianId: { in: guardianLinks.map((l) => l.guardianId) },
+        type: { in: ['PDN_MINOR_GUARDIAN', 'ACTIVITY_WAIVER_MINOR_GUARDIAN'] },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    const latestByType = new Map<string, boolean>();
+    for (const c of consents) {
+      if (!latestByType.has(c.type)) latestByType.set(c.type, c.granted);
+    }
+    if (latestByType.get('PDN_MINOR_GUARDIAN') !== true || latestByType.get('ACTIVITY_WAIVER_MINOR_GUARDIAN') !== true) {
+      throw new BadRequestException(
+        'Оформление абонемента несовершеннолетнему требует подписанных согласий законного представителя (152-ФЗ и допуск к занятиям) — зафиксируйте их в карточке клиента',
+      );
+    }
+  }
+
   private async quoteLine(gymId: string, clientId: string, input: OrderLineInputDto): Promise<QuotedLine> {
     const meta = (input.meta ?? {}) as Record<string, unknown>;
 
@@ -84,6 +121,7 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
         if (!membershipType || !(membershipType in VALIDITY_DAYS)) {
           throw new BadRequestException('Не указан или некорректен тип абонемента');
         }
+        await this.assertGuardianConsentsIfMinor(gymId, clientId);
         const pricing = await this.prisma.membershipPricing.findUnique({ where: { gymId } });
         const priceMap: Record<MembershipType, number | undefined> = {
           SINGLE: pricing?.single,
@@ -104,6 +142,7 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
       case OrderLineType.TARIFF_CHANGE: {
         const tariff = meta.tariff as Tariff;
         if (!tariff || !(tariff in TARIFF_PRICE)) throw new BadRequestException('Не указан или некорректен тариф');
+        await this.assertGuardianConsentsIfMinor(gymId, clientId);
         const client = await this.prisma.client.findFirst({ where: { id: clientId, gymId } });
         if (!client) throw new NotFoundException('Клиент не найден');
         const trainerId = (meta.trainerId as string | undefined) ?? input.refId ?? client.trainerId ?? undefined;

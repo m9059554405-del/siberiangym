@@ -5,6 +5,7 @@ import { CreateClientDto } from './dto/create-client.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
 import { CreateLoginDto } from './dto/create-login.dto';
 import { formatForTariff, VALIDITY_DAYS, VISITS_TOTAL } from './membership.const';
+import { isMinor as computeIsMinor } from './age.util';
 import { AuthService } from '../auth/auth.service';
 import { EmailService } from '../email/email.service';
 import type { JwtPayload } from '../auth/auth.service';
@@ -36,21 +37,42 @@ export class ClientsService {
     return { ok: true };
   }
 
-  findAll(gymId: string) {
-    return this.prisma.client.findMany({
-      where: { gymId },
-      include: { membership: true, trainer: true, formatHistory: true },
-      orderBy: { createdAt: 'desc' },
-    });
+  // Возраст, с которого клиент зала может тренироваться самостоятельно
+  // (P0.6) — настраивается на уровне зала, читается лениво, не кэшируется
+  // между запросами (значение меняется редко, а некорректный кэш в вопросе
+  // "можно ли ребёнку тренироваться одному" — не тот риск, на котором
+  // стоит экономить один короткий запрос).
+  private async getSelfTrainingMinAge(gymId: string): Promise<number> {
+    const gym = await this.prisma.gym.findUniqueOrThrow({ where: { id: gymId }, select: { selfTrainingMinAge: true } });
+    return gym.selfTrainingMinAge;
+  }
+
+  private attachIsMinor<T extends { birthday: Date | null }>(client: T, minAge: number): T & { isMinor: boolean | null } {
+    return { ...client, isMinor: computeIsMinor(client.birthday, minAge) };
+  }
+
+  async findAll(gymId: string) {
+    const [clients, minAge] = await Promise.all([
+      this.prisma.client.findMany({
+        where: { gymId },
+        include: { membership: true, trainer: true, formatHistory: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.getSelfTrainingMinAge(gymId),
+    ]);
+    return clients.map((c) => this.attachIsMinor(c, minAge));
   }
 
   async findOne(gymId: string, id: string) {
-    const client = await this.prisma.client.findFirst({
-      where: { id, gymId },
-      include: { membership: true, trainer: true, formatHistory: true },
-    });
+    const [client, minAge] = await Promise.all([
+      this.prisma.client.findFirst({
+        where: { id, gymId },
+        include: { membership: true, trainer: true, formatHistory: true },
+      }),
+      this.getSelfTrainingMinAge(gymId),
+    ]);
     if (!client) throw new NotFoundException('Клиент не найден');
-    return client;
+    return this.attachIsMinor(client, minAge);
   }
 
   // Тренер видит только карточки своих подопечных.
@@ -68,12 +90,15 @@ export class ClientsService {
   // Собственная карточка клиента — резолвится по userId из токена, а не по
   // параметру запроса, чтобы клиент не мог подставить чужой id.
   async findMe(actor: JwtPayload) {
-    const client = await this.prisma.client.findUnique({
-      where: { userId: actor.sub },
-      include: { membership: true, trainer: true, formatHistory: true },
-    });
+    const [client, minAge] = await Promise.all([
+      this.prisma.client.findUnique({
+        where: { userId: actor.sub },
+        include: { membership: true, trainer: true, formatHistory: true },
+      }),
+      this.getSelfTrainingMinAge(actor.gymId),
+    ]);
     if (!client) throw new NotFoundException('У пользователя нет карточки клиента');
-    return client;
+    return this.attachIsMinor(client, minAge);
   }
 
   // CEO/STAFF могут управлять любым клиентом зала. Сам клиент — только
@@ -90,6 +115,16 @@ export class ClientsService {
     const format = formatForTariff(dto.tariff);
     const validityDays = VALIDITY_DAYS[dto.membershipType];
     const expiresAt = validityDays ? new Date(today.getTime() + validityDays * 86400000) : null;
+
+    // Несовершеннолетнему клиенту доступен только формат "с тренером"
+    // (P0.6, ГК РФ ст. 26/28) — на уровне API, а не только в интерфейсе:
+    // карточка не должна сохраниться без выбранного тренера.
+    const minAge = await this.getSelfTrainingMinAge(actor.gymId);
+    if (computeIsMinor(new Date(dto.birthday), minAge) && !dto.trainerId) {
+      throw new BadRequestException(
+        `Клиенту младше ${minAge} лет недоступны самостоятельные тренировки — сначала выберите тренера`,
+      );
+    }
 
     const client = await this.prisma.client.create({
       data: {
@@ -126,12 +161,20 @@ export class ClientsService {
       client.name,
       dto.trainerId ? 'С тренером и абонементом' : 'Самостоятельные тренировки',
     );
-    return client;
+    return this.attachIsMinor(client, minAge);
   }
 
   async update(actor: JwtPayload, id: string, dto: UpdateClientDto) {
     const before = await this.findOne(actor.gymId, id);
     await this.assertCanAct(actor, before);
+    const minAge = await this.getSelfTrainingMinAge(actor.gymId);
+
+    if (dto.birthday !== undefined && computeIsMinor(new Date(dto.birthday), minAge) && !before.trainerId) {
+      throw new BadRequestException(
+        `С такой датой рождения клиент младше ${minAge} лет — самостоятельные тренировки недоступны, сначала назначьте тренера`,
+      );
+    }
+
     const client = await this.prisma.client.update({
       where: { id },
       data: {
@@ -144,7 +187,7 @@ export class ClientsService {
       },
     });
     await this.activityLog.log(actor, 'Изменил данные клиента', client.name, 'Профиль обновлён');
-    return client;
+    return this.attachIsMinor(client, minAge);
   }
 
   // Смена/выбор тренера и тарифа, а также оформление/продление абонемента
@@ -157,6 +200,13 @@ export class ClientsService {
   async goSelfTraining(actor: JwtPayload, clientId: string) {
     const client = await this.findOne(actor.gymId, clientId);
     await this.assertCanAct(actor, client);
+    // Блокировка на уровне API (P0.6), а не только в интерфейсе — иначе
+    // прямой вызов эндпоинта в обход UI мог бы снять несовершеннолетнему
+    // клиенту тренера, оставив его без обязательного сопровождения.
+    if (client.isMinor) {
+      const minAge = await this.getSelfTrainingMinAge(actor.gymId);
+      throw new ForbiddenException(`Самостоятельные тренировки недоступны младше ${minAge} лет — занятия только с тренером`);
+    }
     const today = new Date();
 
     await this.prisma.$transaction([

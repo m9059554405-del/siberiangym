@@ -1,9 +1,15 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConsentType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActivityLogService } from '../activity-log/activity-log.service';
 import { buildConsentTexts, CONSENT_TEXTS_VERSION } from './consent-texts.const';
+import { isMinor as computeIsMinor } from '../clients/age.util';
 import type { JwtPayload } from '../auth/auth.service';
+
+// Согласия, которые за несовершеннолетнего оформляет законный представитель
+// (P0.6) через отдельный, не self-service процесс (GuardiansService/
+// grantForMinor ниже) — не "взрослые" типы из этого же списка.
+const MINOR_GUARDIAN_CONSENT_TYPES: ConsentType[] = ['PDN_MINOR_GUARDIAN', 'ACTIVITY_WAIVER_MINOR_GUARDIAN'];
 
 export interface ConsentStatus {
   type: ConsentType;
@@ -33,13 +39,30 @@ export class ConsentsService {
     return client;
   }
 
+  private async resolveClientIsMinor(gymId: string, client: { birthday: Date | null }): Promise<boolean | null> {
+    const gym = await this.prisma.gym.findUniqueOrThrow({ where: { id: gymId }, select: { selfTrainingMinAge: true } });
+    return computeIsMinor(client.birthday, gym.selfTrainingMinAge);
+  }
+
   getTexts() {
     const texts = buildConsentTexts();
     return { version: CONSENT_TEXTS_VERSION, texts: Object.values(texts) };
   }
 
+  // Для несовершеннолетнего клиента "взрослые" обязательные согласия
+  // (PDN_ADULT/HEALTH_DATA/ACTIVITY_WAIVER_ADULT) не применимы — за него
+  // подписывает законный представитель отдельно, через
+  // PDN_MINOR_GUARDIAN/ACTIVITY_WAIVER_MINOR_GUARDIAN (их тексты уже
+  // включают в себя то, что для взрослого разделено на ПДн + данные о
+  // здоровье), а не через self-service ConsentGate — иначе несовершенно-
+  // летний клиент со своим логином не смог бы попасть дальше блокирующего
+  // экрана согласия, требующего подписи, которую ему юридически давать
+  // не положено (P0.6).
   private async statusForClient(gymId: string, clientId: string): Promise<ConsentStatus[]> {
     const texts = buildConsentTexts();
+    const client = await this.prisma.client.findUniqueOrThrow({ where: { id: clientId }, select: { birthday: true } });
+    const clientIsMinor = await this.resolveClientIsMinor(gymId, client);
+
     const records = await this.prisma.consentRecord.findMany({
       where: { gymId, clientId },
       orderBy: { createdAt: 'desc' },
@@ -55,7 +78,7 @@ export class ConsentsService {
         granted: latest?.granted ?? false,
         version: latest?.version ?? null,
         updatedAt: latest?.createdAt ?? null,
-        required: texts[type].required,
+        required: clientIsMinor ? false : texts[type].required,
       };
     });
   }
@@ -71,6 +94,33 @@ export class ConsentsService {
     const client = await this.prisma.client.findFirst({ where: { id: clientId, gymId: actor.gymId } });
     if (!client) throw new NotFoundException('Клиент не найден');
     return this.statusForClient(actor.gymId, clientId);
+  }
+
+  // Законный представитель не имеет своего логина в приложении (если сам
+  // не является клиентом клуба) — согласие за несовершеннолетнего физически
+  // подписывается на бумаге/на месте и заносится в систему администратором,
+  // а не через self-service `grant`/`revoke` выше.
+  async grantForMinor(actor: JwtPayload, guardianId: string, clientId: string, type: ConsentType) {
+    if (!MINOR_GUARDIAN_CONSENT_TYPES.includes(type)) {
+      throw new BadRequestException('Этот тип согласия не оформляется через законного представителя');
+    }
+    const client = await this.prisma.client.findFirst({ where: { id: clientId, gymId: actor.gymId } });
+    if (!client) throw new NotFoundException('Клиент не найден');
+    const guardian = await this.prisma.guardian.findFirst({ where: { id: guardianId, gymId: actor.gymId } });
+    if (!guardian) throw new NotFoundException('Законный представитель не найден');
+    const link = await this.prisma.guardianChild.findUnique({ where: { guardianId_clientId: { guardianId, clientId } } });
+    if (!link) throw new BadRequestException('Этот законный представитель не привязан к данному клиенту');
+
+    const record = await this.prisma.consentRecord.create({
+      data: { gymId: actor.gymId, clientId, type, version: CONSENT_TEXTS_VERSION, granted: true, guardianId },
+    });
+    await this.activityLog.log(
+      actor,
+      'Зафиксировал согласие законного представителя',
+      client.name,
+      `${buildConsentTexts()[type].title} — представитель: ${guardian.fullName} (${guardian.relation})`,
+    );
+    return record;
   }
 
   async grant(actor: JwtPayload, type: ConsentType, ip: string | undefined, userAgent: string | undefined) {

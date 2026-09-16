@@ -114,6 +114,24 @@ export interface ConsentStatus {
   required: boolean
 }
 
+export interface GuardianChild {
+  id: string
+  clientId: string
+  client?: Client
+}
+
+export interface Guardian {
+  id: string
+  fullName: string
+  phone: string
+  email: string | null
+  relation: string
+  linkedClientId: string | null
+  linkedClient?: Client | null
+  children: GuardianChild[]
+  createdAt: string
+}
+
 export interface TrainerWorkHour {
   id: string
   day: number
@@ -182,6 +200,8 @@ export interface Client {
   splitPlan: string[]
   membership: Membership | null
   formatHistory?: ClientFormatHistoryEntry[]
+  // null — дата рождения не указана, статус неизвестен (P0.6).
+  isMinor: boolean | null
 }
 
 export interface Exercise {

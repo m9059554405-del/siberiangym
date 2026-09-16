@@ -10,8 +10,11 @@ import { Badge, Button, Card, EmptyState, SectionTitle } from '../../components/
 import { Modal } from '../../components/ui/Modal'
 import { ClientOutreachList } from '../../components/ClientOutreachList'
 import { OrderPendingNotice } from '../../components/OrderPendingNotice'
+import { GuardianSection } from '../../components/GuardianSection'
 import { formatMoney, getInitials } from '../../lib/format'
 import { usePricing } from '../../hooks/useClientApi'
+import { isLikelyMinor } from '../../lib/age'
+import { ApiError } from '../../lib/api'
 import type { Client, Gender, MembershipType, Order, Tariff } from '../../types'
 
 function Field({ label, children }: PropsWithChildren<{ label: string }>) {
@@ -58,16 +61,21 @@ export function ClientsManagePage() {
   const { data: pricing } = usePricing()
   const createClient = useCreateClient()
   const updateClient = useUpdateClient()
-  const goSelfTraining = useGoSelfTraining(undefined)
   const createCashOrder = useCreateCashOrder()
 
   const [createOpen, setCreateOpen] = useState(false)
   const [createDraft, setCreateDraft] = useState<ClientDraft>(EMPTY_DRAFT)
 
   const [editingId, setEditingId] = useState<string | null>(null)
+  // clientId только на момент открытой карточки — до P0.6 здесь стоял
+  // хардкод undefined, из-за чего кнопка "Самостоятельно" в карточке
+  // клиента всегда отправляла запрос на несуществующего клиента и тихо
+  // падала (ошибка нигде не отображалась, поэтому баг был незаметен).
+  const goSelfTraining = useGoSelfTraining(editingId ?? undefined)
   const [editDraft, setEditDraft] = useState<ClientDraft>(EMPTY_DRAFT)
   const [renewType, setRenewType] = useState<MembershipType>('MONTHLY')
   const [pendingOrder, setPendingOrder] = useState<Order | null>(null)
+  const [orderError, setOrderError] = useState<string | null>(null)
 
   const [search, setSearch] = useState('')
   const [sortMode, setSortMode] = useState<SortMode>('joined_desc')
@@ -131,6 +139,7 @@ export function ClientsManagePage() {
     setLoginPassword('')
     setLoginDone(false)
     setPendingOrder(null)
+    setOrderError(null)
   }
 
   return (
@@ -246,7 +255,16 @@ export function ClientsManagePage() {
               ))}
             </select>
           </Field>
-          <Button onClick={submitCreate} disabled={!createDraft.name.trim() || createClient.isPending}>
+          {isLikelyMinor(createDraft.birthday) && !createDraft.trainerId && (
+            <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              По дате рождения клиент несовершеннолетний — самостоятельные тренировки без тренера запрещены. Выберите тренера, чтобы продолжить.
+              Законного представителя и его согласия нужно будет добавить сразу после создания карточки — без них нельзя будет оформить абонемент.
+            </div>
+          )}
+          <Button
+            onClick={submitCreate}
+            disabled={!createDraft.name.trim() || createClient.isPending || (isLikelyMinor(createDraft.birthday) && !createDraft.trainerId)}
+          >
             <Plus size={14} /> Создать клиента
           </Button>
         </div>
@@ -264,23 +282,26 @@ export function ClientsManagePage() {
             setRenewType={setRenewType}
             onSaveProfile={(patch) => updateClient.mutate({ clientId: editingClient.id, data: patch })}
             onSaveTrainer={() => {
+              setOrderError(null)
               if (!editDraft.trainerId) {
-                goSelfTraining.mutate()
+                goSelfTraining.mutate(undefined, { onError: (err) => setOrderError(err instanceof ApiError ? err.message : 'Не удалось сохранить тренера') })
               } else {
                 createCashOrder.mutate(
                   { clientId: editingClient.id, lines: [{ type: 'TARIFF_CHANGE', meta: { tariff: editDraft.tariff, trainerId: editDraft.trainerId } }] },
-                  { onSuccess: setPendingOrder },
+                  { onSuccess: setPendingOrder, onError: (err) => setOrderError(err instanceof ApiError ? err.message : 'Не удалось создать заказ') },
                 )
               }
             }}
-            onRenew={() =>
+            onRenew={() => {
+              setOrderError(null)
               createCashOrder.mutate(
                 { clientId: editingClient.id, lines: [{ type: 'MEMBERSHIP_PURCHASE', meta: { membershipType: renewType } }] },
-                { onSuccess: setPendingOrder },
+                { onSuccess: setPendingOrder, onError: (err) => setOrderError(err instanceof ApiError ? err.message : 'Не удалось создать заказ') },
               )
-            }
+            }}
             pendingOrder={pendingOrder}
             onDismissPendingOrder={() => setPendingOrder(null)}
+            orderError={orderError}
             loginEmail={loginEmail}
             setLoginEmail={setLoginEmail}
             loginPassword={loginPassword}
@@ -297,7 +318,7 @@ export function ClientsManagePage() {
 
 function EditClientForm({
   client, draft, setDraft, trainers, pricing, renewType, setRenewType, onSaveProfile, onSaveTrainer, onRenew,
-  pendingOrder, onDismissPendingOrder,
+  pendingOrder, onDismissPendingOrder, orderError,
   loginEmail, setLoginEmail, loginPassword, setLoginPassword, loginDone, onCreateLogin, loginPending,
 }: {
   client: Client
@@ -312,6 +333,7 @@ function EditClientForm({
   onRenew: () => void
   pendingOrder: Order | null
   onDismissPendingOrder: () => void
+  orderError: string | null
   loginEmail: string
   setLoginEmail: (v: string) => void
   loginPassword: string
@@ -323,6 +345,7 @@ function EditClientForm({
   return (
     <div className="flex flex-col gap-5">
       {pendingOrder && <OrderPendingNotice order={pendingOrder} onDismiss={onDismissPendingOrder} />}
+      {orderError && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{orderError}</div>}
       <div className="flex flex-col gap-2.5">
         <div className="text-xs font-semibold uppercase tracking-wide text-[var(--text-faint)]">Данные клиента</div>
         <input value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
@@ -380,7 +403,9 @@ function EditClientForm({
         <Button size="sm" onClick={onRenew}><RefreshCcw size={13} /> Продлить / оформить абонемент</Button>
       </div>
 
-      <ConsentAuditSection clientId={client.id} />
+      {client.isMinor === true && <GuardianSection clientId={client.id} />}
+
+      {client.isMinor !== true && <ConsentAuditSection clientId={client.id} />}
 
       <div className="flex flex-col gap-2.5 border-t border-[var(--border)] pt-4">
         <div className="text-xs font-semibold uppercase tracking-wide text-[var(--text-faint)]">Доступ в приложение</div>
