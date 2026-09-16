@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
-import { Camera, Keyboard, Receipt, X } from 'lucide-react'
-import { useCancelOrder, useConfirmReceipt, useOpenOrders, useSubmitCash } from '../../hooks/useOrdersApi'
+import { useState } from 'react'
+import { Receipt, RotateCcw, Search, X } from 'lucide-react'
+import { useCancelOrder, useConfirmReceipt, useOpenOrders, usePaidOrders, useSubmitCash } from '../../hooks/useOrdersApi'
+import { useCancelRefund, useConfirmRefundReceipt, useOpenRefunds, useRequestRefund } from '../../hooks/useRefundsApi'
+import { useAllClients } from '../../hooks/useStaffApi'
 import { Avatar } from '../../components/ui/Avatar'
-import { Badge, Button, Card, EmptyState, SectionTitle } from '../../components/ui/Primitives'
+import { Badge, Button, Card, EmptyState, SectionTitle, Tabs } from '../../components/ui/Primitives'
 import { Modal } from '../../components/ui/Modal'
-import { QrCameraScanner } from '../../components/QrCameraScanner'
+import { ReceiptScanPanel } from '../../components/ReceiptScanPanel'
 import { formatMoney, getInitials } from '../../lib/format'
 import { playBeep, playDoubleBeep } from '../../lib/beep'
-import type { Order, OrderLineType } from '../../types'
+import type { Order, OrderLineType, Refund } from '../../types'
 
 const LINE_TYPE_LABEL: Record<OrderLineType, string> = {
   MEMBERSHIP_PURCHASE: 'Абонемент',
@@ -28,36 +30,52 @@ function orderSummary(order: Order): string {
   return order.lines.map((l) => LINE_TYPE_LABEL[l.type]).join(' + ')
 }
 
-// Очередь незакрытых заказов на точке (P0.2) — администратор пробивает
-// реальный чек на кассе на сумму заказа, сканирует QR/штрихкод (обычным
-// USB/BT-сканером, который работает как клавиатура — просто фокус на поле
-// ввода, — либо камерой устройства) и только тогда заказ закрывается: до
-// этого момента ничего из заказа (абонемент, бронь, аренда) не применено.
+// Очередь незакрытых заказов и возвратов точки (P0.2/P0.7) — администратор
+// пробивает реальный чек на кассе на сумму заказа/возврата, сканирует
+// QR/штрихкод и только тогда заказ закрывается или деньги считаются
+// возвращёнными: до этого момента ничего не применено и не откачено.
 export function OrdersPage() {
+  const [tab, setTab] = useState<'orders' | 'refunds'>('orders')
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div>
+        <h1 className="text-xl font-bold">Заказы</h1>
+        <p className="text-sm text-[var(--text-muted)]">
+          Оплата и возврат подтверждаются сканированием реального кассового чека, ничего не применяется раньше
+        </p>
+      </div>
+
+      <Tabs
+        value={tab}
+        onChange={setTab}
+        options={[
+          { value: 'orders', label: 'Ожидают оплаты' },
+          { value: 'refunds', label: 'Возвраты' },
+        ]}
+      />
+
+      {tab === 'orders' ? <OpenOrdersSection /> : <RefundsSection />}
+    </div>
+  )
+}
+
+function OpenOrdersSection() {
   const { data: orders } = useOpenOrders()
   const submitCash = useSubmitCash()
   const confirmReceipt = useConfirmReceipt()
   const cancelOrder = useCancelOrder()
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [qrValue, setQrValue] = useState('')
-  const [useCamera, setUseCamera] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [cancelling, setCancelling] = useState(false)
   const [cancelReason, setCancelReason] = useState('')
-  const inputRef = useRef<HTMLInputElement>(null)
 
   const selected = (orders ?? []).find((o) => o.id === selectedId) ?? null
 
-  useEffect(() => {
-    if (selected && !useCamera) inputRef.current?.focus()
-  }, [selected, useCamera])
-
   function openOrder(order: Order) {
     setSelectedId(order.id)
-    setQrValue('')
     setErrorMessage(null)
-    setUseCamera(false)
     setCancelling(false)
     setCancelReason('')
   }
@@ -67,9 +85,9 @@ export function OrdersPage() {
   }
 
   function submitScan(raw: string) {
-    if (!selected || !raw.trim()) return
+    if (!selected) return
     confirmReceipt.mutate(
-      { orderId: selected.id, qrRaw: raw.trim() },
+      { orderId: selected.id, qrRaw: raw },
       {
         onSuccess: () => {
           playBeep(1200, 140)
@@ -78,7 +96,6 @@ export function OrdersPage() {
         onError: (err) => {
           playDoubleBeep()
           setErrorMessage(err instanceof Error ? err.message : 'Не удалось подтвердить чек')
-          setQrValue('')
         },
       },
     )
@@ -92,14 +109,7 @@ export function OrdersPage() {
   const openList = orders ?? []
 
   return (
-    <div className="flex flex-col gap-5">
-      <div>
-        <h1 className="text-xl font-bold">Заказы</h1>
-        <p className="text-sm text-[var(--text-muted)]">
-          Незакрытые заказы точки — оплата подтверждается сканированием реального кассового чека, ничего не применяется раньше
-        </p>
-      </div>
-
+    <>
       <Card>
         <SectionTitle title="Ожидают оплаты" subtitle={`${openList.length} шт.`} />
         <div className="flex flex-col gap-2">
@@ -157,52 +167,10 @@ export function OrdersPage() {
               </Button>
             ) : !cancelling ? (
               <>
-                <div>
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-[var(--text-faint)]">Подтверждение чека</span>
-                    <button
-                      onClick={() => setUseCamera((v) => !v)}
-                      className="flex items-center gap-1 text-xs font-medium text-[var(--accent-strong)]"
-                    >
-                      {useCamera ? <Keyboard size={13} /> : <Camera size={13} />}
-                      {useCamera ? 'Ввести сканером/вручную' : 'Сканировать камерой'}
-                    </button>
-                  </div>
-
-                  {useCamera ? (
-                    <QrCameraScanner
-                      onDecode={(text) => {
-                        setUseCamera(false)
-                        submitScan(text)
-                      }}
-                      onError={(msg) => setErrorMessage(msg)}
-                    />
-                  ) : (
-                    <input
-                      ref={inputRef}
-                      value={qrValue}
-                      onChange={(e) => setQrValue(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') submitScan(qrValue)
-                      }}
-                      placeholder="Наведите фокус сюда и отсканируйте чек сканером — или введите строку вручную"
-                      className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
-                    />
-                  )}
-                </div>
-
-                {errorMessage && (
-                  <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{errorMessage}</div>
-                )}
-
-                <div className="flex items-center gap-2">
-                  <Button className="flex-1" onClick={() => submitScan(qrValue)} disabled={!qrValue.trim() || confirmReceipt.isPending}>
-                    Подтвердить чек
-                  </Button>
-                  <Button variant="danger" onClick={() => setCancelling(true)}>
-                    <X size={14} /> Отменить заказ
-                  </Button>
-                </div>
+                <ReceiptScanPanel onSubmit={submitScan} isPending={confirmReceipt.isPending} errorMessage={errorMessage} onErrorChange={setErrorMessage} />
+                <Button variant="danger" onClick={() => setCancelling(true)}>
+                  <X size={14} /> Отменить заказ
+                </Button>
               </>
             ) : (
               <div className="flex flex-col gap-2">
@@ -225,6 +193,195 @@ export function OrdersPage() {
           </div>
         )}
       </Modal>
+    </>
+  )
+}
+
+function RefundsSection() {
+  return (
+    <div className="flex flex-col gap-5">
+      <RequestRefundCard />
+      <OpenRefundsCard />
     </div>
+  )
+}
+
+// Поиск оплаченного заказа клиента и запрос возврата по нему — только
+// запрос, ничего не откатывается, пока чек возврата не отсканирован (см. OpenRefundsCard).
+function RequestRefundCard() {
+  const { data: clients } = useAllClients()
+  const [search, setSearch] = useState('')
+  const [clientId, setClientId] = useState<string | null>(null)
+  const { data: paidOrders } = usePaidOrders(clientId ?? undefined)
+  const requestRefund = useRequestRefund()
+  const [reasonByOrder, setReasonByOrder] = useState<Record<string, string>>({})
+  const [requestedId, setRequestedId] = useState<string | null>(null)
+
+  const q = search.trim().toLowerCase()
+  const matches = q ? (clients ?? []).filter((c) => c.name.toLowerCase().includes(q)).slice(0, 8) : []
+
+  return (
+    <Card>
+      <SectionTitle title="Оформить возврат" subtitle="Найдите клиента и оплаченный заказ, по которому нужно вернуть деньги" />
+      <div className="relative">
+        <div className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2">
+          <Search size={14} className="text-[var(--text-faint)]" />
+          <input
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value)
+              setClientId(null)
+            }}
+            placeholder="Имя клиента…"
+            className="flex-1 bg-transparent text-sm outline-none"
+          />
+        </div>
+        {matches.length > 0 && !clientId && (
+          <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] shadow-lg">
+            {matches.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => {
+                  setClientId(c.id)
+                  setSearch(c.name)
+                }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-[var(--surface-sunken)]"
+              >
+                <Avatar initials={getInitials(c.name)} hue={c.avatarHue} size={24} />
+                {c.name}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {clientId && (
+        <div className="mt-3 flex flex-col gap-2">
+          {(paidOrders ?? []).length === 0 && <EmptyState title="Нет оплаченных заказов" subtitle="У этого клиента ещё нет ни одного закрытого заказа" />}
+          {(paidOrders ?? []).map((order) => (
+            <div key={order.id} className="flex flex-col gap-2 rounded-lg bg-[var(--surface-sunken)] px-3 py-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm">
+                  <div className="font-medium">{orderSummary(order)}</div>
+                  <div className="text-xs text-[var(--text-faint)]">{order.paidAt?.slice(0, 10)}</div>
+                </div>
+                <span className="text-sm font-semibold">{formatMoney(order.totalAmount)} ₽</span>
+              </div>
+              {requestedId === order.id ? (
+                <Badge tone="success">Возврат запрошен ✓ — см. вкладку «Ожидают чека возврата»</Badge>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <input
+                    value={reasonByOrder[order.id] ?? ''}
+                    onChange={(e) => setReasonByOrder((m) => ({ ...m, [order.id]: e.target.value }))}
+                    placeholder="Причина возврата"
+                    className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-2.5 py-1.5 text-sm outline-none focus:border-[var(--accent)]"
+                  />
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    disabled={!reasonByOrder[order.id]?.trim() || requestRefund.isPending}
+                    onClick={() =>
+                      requestRefund.mutate(
+                        { orderId: order.id, reason: reasonByOrder[order.id].trim() },
+                        { onSuccess: () => setRequestedId(order.id) },
+                      )
+                    }
+                  >
+                    <RotateCcw size={13} /> Запросить возврат
+                  </Button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function OpenRefundsCard() {
+  const { data: refunds } = useOpenRefunds()
+  const confirmReceipt = useConfirmRefundReceipt()
+  const cancelRefund = useCancelRefund()
+
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+  const list = refunds ?? []
+  const selected = list.find((r) => r.id === selectedId) ?? null
+
+  function open(refund: Refund) {
+    setSelectedId(refund.id)
+    setErrorMessage(null)
+  }
+
+  function submitScan(raw: string) {
+    if (!selected) return
+    confirmReceipt.mutate(
+      { refundId: selected.id, qrRaw: raw },
+      {
+        onSuccess: () => {
+          playBeep(1200, 140)
+          setSelectedId(null)
+        },
+        onError: (err) => {
+          playDoubleBeep()
+          setErrorMessage(err instanceof Error ? err.message : 'Не удалось подтвердить чек возврата')
+        },
+      },
+    )
+  }
+
+  return (
+    <Card>
+      <SectionTitle title="Ожидают чека возврата" subtitle={`${list.length} шт.`} />
+      <div className="flex flex-col gap-2">
+        {list.map((refund) => (
+          <button
+            key={refund.id}
+            onClick={() => open(refund)}
+            className="tap-scale flex flex-wrap items-center justify-between gap-3 rounded-lg bg-[var(--surface-sunken)] px-3 py-2.5 text-left"
+          >
+            <div className="flex items-center gap-2.5">
+              {refund.order?.client && <Avatar initials={getInitials(refund.order.client.name)} hue={refund.order.client.avatarHue} size={34} />}
+              <div>
+                <div className="text-sm font-medium">{refund.order?.client?.name ?? refund.orderId}</div>
+                <div className="text-xs text-[var(--text-faint)]">{refund.reason}</div>
+              </div>
+            </div>
+            <span className="text-sm font-semibold text-red-600">−{formatMoney(refund.amount)} ₽</span>
+          </button>
+        ))}
+        {list.length === 0 && <EmptyState title="Нет возвратов, ожидающих чека" />}
+      </div>
+
+      <Modal open={!!selected} onClose={() => setSelectedId(null)} title={selected?.order?.client?.name ?? 'Возврат'}>
+        {selected && (
+          <div className="flex flex-col gap-4">
+            <div className="rounded-lg bg-[var(--surface-sunken)] p-3 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-[var(--text-muted)]">Причина</span>
+                <span>{selected.reason}</span>
+              </div>
+              <div className="mt-2 flex items-center justify-between border-t border-[var(--border)] pt-2 text-base font-semibold">
+                <span>К возврату</span>
+                <span>{formatMoney(selected.amount)} ₽</span>
+              </div>
+            </div>
+            <ReceiptScanPanel
+              onSubmit={submitScan}
+              isPending={confirmReceipt.isPending}
+              errorMessage={errorMessage}
+              onErrorChange={setErrorMessage}
+              label="Подтверждение чека возврата (n=2)"
+            />
+            <Button variant="danger" onClick={() => cancelRefund.mutate(selected.id, { onSuccess: () => setSelectedId(null) })} disabled={cancelRefund.isPending}>
+              <X size={14} /> Отменить запрос на возврат
+            </Button>
+          </div>
+        )}
+      </Modal>
+    </Card>
   )
 }

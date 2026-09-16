@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { OrdersService } from './orders.service';
 import { CancelOrderDto, ConfirmReceiptDto, CreateOrderDto } from './dto/create-order.dto';
@@ -19,6 +19,13 @@ export class OrdersController {
   @Get('open')
   findOpen(@CurrentUser() user: JwtPayload) {
     return this.orders.findOpen(user.gymId);
+  }
+
+  // Для поиска заказа, по которому нужно оформить возврат (P0.7).
+  @Roles(Role.CEO, Role.STAFF)
+  @Get('paid')
+  findPaid(@Query('clientId') clientId: string, @CurrentUser() user: JwtPayload) {
+    return this.orders.findPaidByClient(user.gymId, clientId);
   }
 
   @Roles(Role.CLIENT)

@@ -14,7 +14,7 @@ export type WriteoffReason = 'EXPIRED' | 'DAMAGED' | 'SOLD_MANUAL' | 'USED_INTER
 export type ClubPostType = 'NEWS' | 'PHOTO' | 'VIDEO' | 'ACHIEVEMENT'
 export type ProgressPhotoKind = 'FOOD' | 'BODY'
 export type MealType = 'BREAKFAST' | 'LUNCH' | 'DINNER' | 'OTHER'
-export type TransactionCategory = 'MEMBERSHIP' | 'PERSONAL' | 'GROUP' | 'ANCILLARY'
+export type TransactionCategory = 'MEMBERSHIP' | 'PERSONAL' | 'GROUP' | 'ANCILLARY' | 'REFUND'
 export type OfferAudience = 'ALL' | 'EXPIRING_SOON' | 'TOP_PERFORMERS'
 
 export type OrderStatus = 'DRAFT' | 'AWAITING_PAYMENT' | 'PAID' | 'CANCELLED' | 'EXPIRED'
@@ -55,6 +55,33 @@ export interface Order {
   cancelReason: string | null
   createdAt: string
   lines: OrderLine[]
+}
+
+export type RefundStatus = 'AWAITING_RECEIPT' | 'CONFIRMED' | 'CANCELLED'
+
+export interface RefundLine {
+  id: string
+  orderLineId: string
+  detail: string
+}
+
+export interface Refund {
+  id: string
+  orderId: string
+  order?: Order
+  requestedBy: string
+  reason: string
+  amount: number
+  status: RefundStatus
+  receiptRaw: string | null
+  receiptDate: string | null
+  receiptFn: string | null
+  receiptI: string | null
+  receiptFp: string | null
+  confirmedAt: string | null
+  cancelledAt: string | null
+  createdAt: string
+  lines: RefundLine[]
 }
 
 export interface TrainerWorkHour {
