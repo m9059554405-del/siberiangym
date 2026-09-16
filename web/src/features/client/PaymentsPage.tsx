@@ -13,6 +13,7 @@ import { tariffById } from '../../data/tariffs'
 import { Badge, Button, Card, EmptyState, SectionTitle } from '../../components/ui/Primitives'
 import { TariffPicker } from '../../components/TariffPicker'
 import { OrderPendingNotice } from '../../components/OrderPendingNotice'
+import { PersonalDataSection } from '../../components/PersonalDataSection'
 import { formatMoney } from '../../lib/format'
 import type { MembershipType, Order, Tariff } from '../../types'
 
@@ -239,6 +240,8 @@ export function PaymentsPage() {
           </Card>
         )}
       </section>
+
+      <PersonalDataSection />
     </div>
   )
 }

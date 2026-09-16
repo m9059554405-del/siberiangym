@@ -84,6 +84,36 @@ export interface Refund {
   lines: RefundLine[]
 }
 
+export type ConsentType =
+  | 'PDN_ADULT'
+  | 'PDN_MINOR_GUARDIAN'
+  | 'HEALTH_DATA'
+  | 'ACTIVITY_WAIVER_ADULT'
+  | 'ACTIVITY_WAIVER_MINOR_GUARDIAN'
+  | 'MARKETING_MEDIA'
+  | 'MARKETING_NEWSLETTER'
+  | 'STAFF_PDN'
+
+export interface ConsentTextDef {
+  type: ConsentType
+  title: string
+  body: string
+  required: boolean
+}
+
+export interface ConsentTexts {
+  version: string
+  texts: ConsentTextDef[]
+}
+
+export interface ConsentStatus {
+  type: ConsentType
+  granted: boolean
+  version: string | null
+  updatedAt: string | null
+  required: boolean
+}
+
 export interface TrainerWorkHour {
   id: string
   day: number

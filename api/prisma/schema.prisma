@@ -44,6 +44,7 @@ model Gym {
   pricing            MembershipPricing?
   orders             Order[]
   refunds            Refund[]
+  consentRecords     ConsentRecord[]
 
   @@map("gyms")
 }
@@ -135,6 +136,7 @@ model Client {
   personalSlots      PersonalSlot[]
   lockerRentals      Locker[]
   orders             Order[]
+  consentRecords     ConsentRecord[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1025,4 +1027,41 @@ model OutreachNote {
 
   @@index([gymId])
   @@map("outreach_notes")
+}
+
+// --- Согласия на обработку персональных данных (152-ФЗ, P0.4) ---
+
+enum ConsentType {
+  PDN_ADULT // базовое согласие на ПДн, клиент старше 18 (текст №1 в приложении к бэклогу)
+  PDN_MINOR_GUARDIAN // согласие законного представителя на ПДн несовершеннолетнего (текст №2) — задел под P0.6
+  HEALTH_DATA // данные о физ. показателях и здоровье: замеры, биоимпедансометрия, фото прогресса (текст №3)
+  ACTIVITY_WAIVER_ADULT // информированное согласие на занятия физкультурой, 18+ (текст №4)
+  ACTIVITY_WAIVER_MINOR_GUARDIAN // то же от законного представителя несовершеннолетнего (текст №5) — задел под P0.6
+  MARKETING_MEDIA // фото-/видеосъёмка для маркетинговых материалов (текст №6)
+  MARKETING_NEWSLETTER // рекламная и информационная рассылка (текст №7)
+  STAFF_PDN // согласие сотрудника (тренера) на обработку его ПДн (текст №10) — задел под P1.4
+}
+
+// Факт согласия — журнал добавлений, а не одна перезаписываемая строка:
+// каждое действие (дать согласие / отозвать) — новая запись с датой,
+// версией текста на тот момент и IP/устройством, откуда оно получено.
+// Текущий статус по типу — последняя запись для (clientId, type) по
+// createdAt. Не путать с P0.7 (Refund) — это другой журнал, здесь про
+// согласие на обработку данных, а не про деньги.
+model ConsentRecord {
+  id        String      @id @default(cuid())
+  gymId     String      @map("gym_id")
+  gym       Gym         @relation(fields: [gymId], references: [id])
+  clientId  String      @map("client_id")
+  client    Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  type      ConsentType
+  version   String // версия текста согласия на момент этой записи, например "2026-09-14"
+  granted   Boolean // true — дано этой записью, false — отозвано этой записью
+  ipAddress String?     @map("ip_address")
+  userAgent String?     @map("user_agent")
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  @@index([gymId])
+  @@index([clientId, type])
+  @@map("consent_records")
 }

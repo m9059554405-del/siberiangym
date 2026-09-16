@@ -2,6 +2,7 @@ import { useMemo, useState, type PropsWithChildren } from 'react'
 import { Plus, RefreshCcw, UserCog, UserPlus } from 'lucide-react'
 import { useGoSelfTraining, useTrainers } from '../../hooks/useClientApi'
 import { useCreateCashOrder } from '../../hooks/useOrdersApi'
+import { useClientConsents } from '../../hooks/useConsentsApi'
 import { useAllClients, useCreateClient, useCreateClientLogin, useUpdateClient, type CreateClientPayload } from '../../hooks/useStaffApi'
 import { TARIFFS } from '../../data/tariffs'
 import { Avatar } from '../../components/ui/Avatar'
@@ -379,6 +380,8 @@ function EditClientForm({
         <Button size="sm" onClick={onRenew}><RefreshCcw size={13} /> Продлить / оформить абонемент</Button>
       </div>
 
+      <ConsentAuditSection clientId={client.id} />
+
       <div className="flex flex-col gap-2.5 border-t border-[var(--border)] pt-4">
         <div className="text-xs font-semibold uppercase tracking-wide text-[var(--text-faint)]">Доступ в приложение</div>
         {loginDone ? (
@@ -394,6 +397,35 @@ function EditClientForm({
             </Button>
           </>
         )}
+      </div>
+    </div>
+  )
+}
+
+const AUDIT_LABELS: Record<string, string> = {
+  PDN_ADULT: '152-ФЗ (ПДн)',
+  HEALTH_DATA: 'Данные о здоровье',
+  ACTIVITY_WAIVER_ADULT: 'Допуск к тренировкам',
+}
+
+// Read-only для CEO/STAFF — подтверждение, что клиент подписал нужные
+// согласия до начала тренировок, без необходимости лезть в базу руками
+// (P0.4). Само согласие даёт только клиент через личный кабинет.
+function ConsentAuditSection({ clientId }: { clientId: string }) {
+  const { data: statuses } = useClientConsents(clientId)
+  if (!statuses) return null
+  const relevant = statuses.filter((s) => s.type in AUDIT_LABELS)
+  if (relevant.length === 0) return null
+
+  return (
+    <div className="flex flex-col gap-2 border-t border-[var(--border)] pt-4">
+      <div className="text-xs font-semibold uppercase tracking-wide text-[var(--text-faint)]">Согласия (152-ФЗ)</div>
+      <div className="flex flex-wrap gap-2">
+        {relevant.map((s) => (
+          <Badge key={s.type} tone={s.granted ? 'success' : 'danger'}>
+            {AUDIT_LABELS[s.type]}: {s.granted ? 'подписано' : 'не подписано'}
+          </Badge>
+        ))}
       </div>
     </div>
   )

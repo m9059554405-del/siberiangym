@@ -61,6 +61,8 @@ services:
       SMTP_FROM: ${SMTP_FROM:-SiberianGym <no-reply@siberiangym.ru>}
       SEED_CEO_EMAIL: ${SEED_CEO_EMAIL:-ceo@siberiangym.ru}
       SEED_CEO_PASSWORD: ${SEED_CEO_PASSWORD}
+      GYM_LEGAL_NAME: ${GYM_LEGAL_NAME:-}
+      GYM_CLUB_NAME: ${GYM_CLUB_NAME:-SiberianGym}
 
   web:
     build: ./web
