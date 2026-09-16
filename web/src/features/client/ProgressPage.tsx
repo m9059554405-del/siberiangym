@@ -13,6 +13,7 @@ import {
   useOwnWorkoutLogs,
   useUpdateOwnProfile,
 } from '../../hooks/useClientApi'
+import { useUploadPhoto } from '../../hooks/useUploadPhoto'
 import { getMuscleLoadChange } from '../../lib/muscleLoad'
 import { tariffUnlocksCoaching } from '../../data/tariffs'
 import { computeCycleInfo } from '../../lib/femaleCycle'
@@ -44,15 +45,6 @@ const MEASUREMENT_FIELDS = [
 const MEAL_LABELS: Record<MealType, string> = { BREAKFAST: 'Завтрак', LUNCH: 'Обед', DINNER: 'Ужин', OTHER: 'Прочее' }
 const MEAL_ORDER: MealType[] = ['BREAKFAST', 'LUNCH', 'DINNER', 'OTHER']
 
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result as string)
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
-}
-
 function CoachingLocked() {
   return (
     <Card className="flex flex-col items-center gap-2 py-8 text-center">
@@ -70,22 +62,29 @@ function CoachingLocked() {
   )
 }
 
-function MealSection({ mealType, photos }: { mealType: MealType; photos: ProgressPhoto[] }) {
+function MealSection({ mealType, photos, onError }: { mealType: MealType; photos: ProgressPhoto[]; onError: (message: string) => void }) {
   const addProgressPhoto = useAddProgressPhoto()
+  const uploadPhoto = useUploadPhoto()
   const inputRef = useRef<HTMLInputElement>(null)
 
   async function handleUpload(file: File | undefined) {
     if (!file) return
-    const dataUrl = await readFileAsDataUrl(file)
-    addProgressPhoto.mutate({ kind: 'FOOD', url: dataUrl, mealType })
+    try {
+      const url = await uploadPhoto.mutateAsync(file)
+      addProgressPhoto.mutate({ kind: 'FOOD', url, mealType })
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Не удалось загрузить фото')
+    }
   }
+
+  const busy = uploadPhoto.isPending || addProgressPhoto.isPending
 
   return (
     <div>
       <div className="mb-1.5 flex items-center justify-between">
         <span className="text-sm font-medium">{MEAL_LABELS[mealType]}</span>
-        <button onClick={() => inputRef.current?.click()} className="tap-scale flex items-center gap-1 text-xs font-medium text-[var(--accent-strong)]">
-          <Camera size={13} /> Добавить
+        <button onClick={() => inputRef.current?.click()} disabled={busy} className="tap-scale flex items-center gap-1 text-xs font-medium text-[var(--accent-strong)] disabled:opacity-50">
+          <Camera size={13} /> {busy ? 'Загрузка…' : 'Добавить'}
         </button>
       </div>
       {photos.length === 0 ? (
@@ -113,6 +112,8 @@ export function ProgressPage() {
   const addMeasurement = useAddMeasurement()
   const updateProfile = useUpdateOwnProfile(client?.id)
   const addCycleLog = useAddCycleLog()
+  const uploadBodyPhoto = useUploadPhoto()
+  const uploadProfilePhoto = useUploadPhoto()
 
   const [section, setSection] = useState<'load' | 'about'>('load')
   const [periodDays, setPeriodDays] = useState('30')
@@ -123,6 +124,7 @@ export function ProgressPage() {
     bodyFatPercent: '', muscleMassKg: '', waterPercent: '', visceralFat: '',
   })
   const [nameInput, setNameInput] = useState('')
+  const [uploadError, setUploadError] = useState<string | null>(null)
 
   const bodyInputRef = useRef<HTMLInputElement>(null)
   const profileInputRef = useRef<HTMLInputElement>(null)
@@ -154,13 +156,23 @@ export function ProgressPage() {
 
   async function handleBodyUpload(file: File | undefined) {
     if (!file) return
-    const dataUrl = await readFileAsDataUrl(file)
-    addProgressPhoto.mutate({ kind: 'BODY', url: dataUrl })
+    setUploadError(null)
+    try {
+      const url = await uploadBodyPhoto.mutateAsync(file)
+      addProgressPhoto.mutate({ kind: 'BODY', url })
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Не удалось загрузить фото')
+    }
   }
   async function handleProfileUpload(file: File | undefined) {
     if (!file) return
-    const dataUrl = await readFileAsDataUrl(file)
-    updateProfile.mutate({ profilePhotoUrl: dataUrl })
+    setUploadError(null)
+    try {
+      const url = await uploadProfilePhoto.mutateAsync(file)
+      updateProfile.mutate({ profilePhotoUrl: url })
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Не удалось загрузить фото')
+    }
   }
 
   function submitMeasurement() {
@@ -185,6 +197,15 @@ export function ProgressPage() {
         <h1 className="text-xl font-bold">Прогресс</h1>
         <p className="text-sm text-[var(--text-muted)]">Нагрузка по мышцам, фото, замеры и профиль</p>
       </div>
+
+      {uploadError && (
+        <div className="flex items-center justify-between gap-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+          <span>{uploadError}</span>
+          <button onClick={() => setUploadError(null)} className="shrink-0 font-medium">
+            ✕
+          </button>
+        </div>
+      )}
 
       <Tabs
         value={section}
@@ -311,8 +332,8 @@ export function ProgressPage() {
                   </div>
                 )}
                 <input ref={bodyInputRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => handleBodyUpload(e.target.files?.[0])} />
-                <Button size="sm" variant="secondary" className="mt-3" onClick={() => bodyInputRef.current?.click()}>
-                  <Camera size={14} /> Загрузить фото в полный рост
+                <Button size="sm" variant="secondary" className="mt-3" onClick={() => bodyInputRef.current?.click()} disabled={uploadBodyPhoto.isPending}>
+                  <Camera size={14} /> {uploadBodyPhoto.isPending ? 'Загрузка…' : 'Загрузить фото в полный рост'}
                 </Button>
               </Card>
 
@@ -320,7 +341,7 @@ export function ProgressPage() {
                 <SectionTitle title="Фото еды" subtitle="Покажите тренеру, что едите — по приёмам пищи" />
                 <div className="flex flex-col gap-3">
                   {MEAL_ORDER.map((mealType) => (
-                    <MealSection key={mealType} mealType={mealType} photos={foodPhotos.filter((p) => (p.mealType ?? 'OTHER') === mealType)} />
+                    <MealSection key={mealType} mealType={mealType} photos={foodPhotos.filter((p) => (p.mealType ?? 'OTHER') === mealType)} onError={setUploadError} />
                   ))}
                 </div>
               </Card>
@@ -340,8 +361,8 @@ export function ProgressPage() {
               <Avatar initials={getInitials(client.name)} hue={client.avatarHue} size={96} />
             )}
             <input ref={profileInputRef} type="file" accept="image/*" hidden onChange={(e) => handleProfileUpload(e.target.files?.[0])} />
-            <Button size="sm" variant="secondary" onClick={() => profileInputRef.current?.click()}>
-              <User size={14} /> Изменить фото профиля
+            <Button size="sm" variant="secondary" onClick={() => profileInputRef.current?.click()} disabled={uploadProfilePhoto.isPending}>
+              <User size={14} /> {uploadProfilePhoto.isPending ? 'Загрузка…' : 'Изменить фото профиля'}
             </Button>
           </Card>
 

@@ -25,6 +25,7 @@ import { EmailModule } from './email/email.module';
 import { OrdersModule } from './orders/orders.module';
 import { RefundsModule } from './refunds/refunds.module';
 import { ConsentsModule } from './consents/consents.module';
+import { StorageModule } from './storage/storage.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { ConsentsModule } from './consents/consents.module';
     OrdersModule,
     RefundsModule,
     ConsentsModule,
+    StorageModule,
   ],
 })
 export class AppModule {}

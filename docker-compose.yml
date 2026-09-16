@@ -12,5 +12,48 @@ services:
     volumes:
       - siberiangym_pg_data:/var/lib/postgresql/data
 
+  # S3-совместимое хранилище для локальной разработки (P0.5) — в проде
+  # используется внешний S3 (Selectel и т.п.), не MinIO на том же сервере
+  # (см. docker-compose.prod.yml); здесь MinIO нужен только чтобы не
+  # требовать реальных облачных credentials для разработки/тестов.
+  minio:
+    # Начиная с 2024 MinIO публикует образы на Quay.io, не на Docker Hub
+    # (`minio/minio` там больше недоступен, найдено на практике).
+    image: quay.io/minio/minio:latest
+    container_name: siberiangym-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: siberiangym_dev
+      MINIO_ROOT_PASSWORD: siberiangym_dev_password
+    ports:
+      - "9000:9000" # S3 API
+      - "9001:9001" # веб-консоль
+    volumes:
+      - siberiangym_minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Разовая настройка: создаёт бакет и включает публичное чтение объектов
+  # (нужно для отдачи загруженных фото напрямую браузеру) — выполняется
+  # один раз при старте и завершается, ничего не оставляет запущенным.
+  minio-init:
+    image: quay.io/minio/mc:latest
+    container_name: siberiangym-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: >
+      sh -c "
+      mc alias set local http://minio:9000 siberiangym_dev siberiangym_dev_password &&
+      mc mb --ignore-existing local/siberiangym-media &&
+      mc anonymous set download local/siberiangym-media
+      "
+
 volumes:
   siberiangym_pg_data:
+  siberiangym_minio_data:

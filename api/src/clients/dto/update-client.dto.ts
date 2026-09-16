@@ -1,4 +1,4 @@
-import { IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsEnum, IsOptional, IsString, IsUrl, MaxLength, MinLength } from 'class-validator';
 import { Gender } from '@prisma/client';
 
 export class UpdateClientDto {
@@ -23,7 +23,10 @@ export class UpdateClientDto {
   @IsString()
   birthday?: string;
 
+  // С P0.5 это ссылка на объектное хранилище (S3), полученная от
+  // POST /uploads/photo — не data URL.
   @IsOptional()
-  @IsString()
+  @IsUrl({ require_tld: false })
+  @MaxLength(2048)
   profilePhotoUrl?: string;
 }
