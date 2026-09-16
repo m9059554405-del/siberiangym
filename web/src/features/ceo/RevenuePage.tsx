@@ -9,10 +9,10 @@ import { getInitials } from '../../lib/format'
 import type { TransactionCategory } from '../../types'
 
 const CATEGORY_LABELS: Record<TransactionCategory, string> = {
-  MEMBERSHIP: 'Абонементы', PERSONAL: 'Персональные', GROUP: 'Групповые', ANCILLARY: 'Сопутствующие',
+  MEMBERSHIP: 'Абонементы', PERSONAL: 'Персональные', GROUP: 'Групповые', ANCILLARY: 'Сопутствующие', REFUND: 'Возвраты',
 }
 const CATEGORY_COLORS: Record<TransactionCategory, string> = {
-  MEMBERSHIP: 'var(--ceo-accent)', PERSONAL: '#3b82f6', GROUP: '#7dd3fc', ANCILLARY: '#bfdbfe',
+  MEMBERSHIP: 'var(--ceo-accent)', PERSONAL: '#3b82f6', GROUP: '#7dd3fc', ANCILLARY: '#bfdbfe', REFUND: '#ef4444',
 }
 
 function fmt(n: number) {
@@ -33,7 +33,7 @@ export function RevenuePage() {
   const points = granularity === 'day' ? byDay : byMonth
 
   const categoryTotals = useMemo(() => {
-    const sums: Record<TransactionCategory, number> = { MEMBERSHIP: 0, PERSONAL: 0, GROUP: 0, ANCILLARY: 0 }
+    const sums: Record<TransactionCategory, number> = { MEMBERSHIP: 0, PERSONAL: 0, GROUP: 0, ANCILLARY: 0, REFUND: 0 }
     for (const t of tx) sums[t.category] += t.amount
     return (Object.entries(sums) as [TransactionCategory, number][]).map(([category, value]) => ({ category, value }))
   }, [tx])
@@ -68,7 +68,8 @@ export function RevenuePage() {
               <Bar dataKey="MEMBERSHIP" stackId="a" fill={CATEGORY_COLORS.MEMBERSHIP} />
               <Bar dataKey="PERSONAL" stackId="a" fill={CATEGORY_COLORS.PERSONAL} />
               <Bar dataKey="GROUP" stackId="a" fill={CATEGORY_COLORS.GROUP} />
-              <Bar dataKey="ANCILLARY" stackId="a" fill={CATEGORY_COLORS.ANCILLARY} radius={[4, 4, 0, 0]} />
+              <Bar dataKey="ANCILLARY" stackId="a" fill={CATEGORY_COLORS.ANCILLARY} />
+              <Bar dataKey="REFUND" stackId="a" fill={CATEGORY_COLORS.REFUND} radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -76,12 +77,13 @@ export function RevenuePage() {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Card>
+          {/* Возвраты — отрицательная сумма, в круговой диаграмме долей источников не участвуют (показаны отдельно плиткой сверху и в динамике по дням/месяцам) */}
           <SectionTitle title="По источникам" />
           <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={categoryTotals} dataKey="value" nameKey="category" innerRadius={50} outerRadius={80} paddingAngle={2}>
-                  {categoryTotals.map((c) => <Cell key={c.category} fill={CATEGORY_COLORS[c.category]} />)}
+                <Pie data={categoryTotals.filter((c) => c.category !== 'REFUND' && c.value > 0)} dataKey="value" nameKey="category" innerRadius={50} outerRadius={80} paddingAngle={2}>
+                  {categoryTotals.filter((c) => c.category !== 'REFUND' && c.value > 0).map((c) => <Cell key={c.category} fill={CATEGORY_COLORS[c.category]} />)}
                 </Pie>
                 <Tooltip formatter={(v: any, n: any) => [fmt(v), CATEGORY_LABELS[n as TransactionCategory] ?? n]} />
                 <Legend formatter={(v: string) => CATEGORY_LABELS[v as TransactionCategory] ?? v} wrapperStyle={{ fontSize: 12 }} />

@@ -43,6 +43,7 @@ model Gym {
   outreachNotes      OutreachNote[]
   pricing            MembershipPricing?
   orders             Order[]
+  refunds            Refund[]
 
   @@map("gyms")
 }
@@ -549,6 +550,7 @@ model Order {
 
   lines        OrderLine[]
   transactions Transaction[]
+  refunds      Refund[]
 
   // NULL != NULL в Postgres — несколько ещё не оплаченных заказов с пустыми
   // реквизитами чека спокойно сосуществуют, ограничение реально срабатывает
@@ -572,6 +574,69 @@ model OrderLine {
   @@map("order_lines")
 }
 
+// --- Возврат оплаты (P0.7) ---
+//
+// По 54-ФЗ отмена платежа — не "удалить транзакцию из базы", а отдельный
+// фискальный документ "чек возврата прихода": администратор пробивает его
+// на кассе так же, как обычный чек в P0.2, и сканирует в систему. Пока
+// чек возврата не подтверждён — заказ остаётся оплаченным, откат не
+// применяется (та же стратегия "ничего не применяется без чека", что в P0.2).
+enum RefundStatus {
+  AWAITING_RECEIPT // возврат запрошен, ждём скан чека возврата прихода
+  CONFIRMED // чек возврата отсканирован, сумма совпала — откат применён
+  CANCELLED // запрос на возврат отменён до скана (передумали)
+}
+
+// В этой версии поддерживается только полный возврат заказа целиком —
+// осознанное решение вместо частичного возврата по отдельным OrderLine,
+// чтобы не плодить неявные промежуточные состояния (явно предложено как
+// более простая альтернатива в самой задаче P0.7).
+model Refund {
+  id          String       @id @default(cuid())
+  gymId       String       @map("gym_id")
+  gym         Gym          @relation(fields: [gymId], references: [id])
+  orderId     String       @map("order_id")
+  order       Order        @relation(fields: [orderId], references: [id])
+  requestedBy String       @map("requested_by") // userId того, кто оформил возврат
+  reason      String
+  amount      Int // = Order.totalAmount на момент запроса возврата
+  status      RefundStatus @default(AWAITING_RECEIPT)
+
+  receiptRaw  String?   @map("receipt_raw")
+  receiptDate DateTime? @map("receipt_date")
+  receiptFn   String?   @map("receipt_fn")
+  receiptI    String?   @map("receipt_i")
+  receiptFp   String?   @map("receipt_fp")
+
+  confirmedAt DateTime? @map("confirmed_at")
+  cancelledAt DateTime? @map("cancelled_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  lines RefundLine[]
+
+  // Та же защита, что у Order: один чек возврата нельзя привязать к двум
+  // возвратам (NULL != NULL в Postgres — не мешает нескольким ещё не
+  // подтверждённым возвратам сосуществовать).
+  @@unique([receiptFn, receiptI, receiptFp])
+  @@index([gymId])
+  @@index([orderId])
+  @@map("refunds")
+}
+
+// Что реально произошло с каждой позицией исходного заказа при откате —
+// для аудита (CEO должен видеть не просто "деньги вернули", а что именно
+// откатилось: абонемент, бронь, шкафчик — или физически откатывать было
+// нечего, как в случае с товаром, см. P0.7 в CHANGELOG).
+model RefundLine {
+  id          String @id @default(cuid())
+  refundId    String @map("refund_id")
+  refund      Refund @relation(fields: [refundId], references: [id], onDelete: Cascade)
+  orderLineId String @map("order_line_id")
+  detail      String
+
+  @@map("refund_lines")
+}
+
 // --- Финансы ---
 
 enum TransactionCategory {
@@ -579,6 +644,7 @@ enum TransactionCategory {
   PERSONAL
   GROUP
   ANCILLARY
+  REFUND // отрицательная сумма — возврат по P0.7, отдельная категория, а не "тихая" отрицательная транзакция без объяснения причины
 }
 
 model Transaction {

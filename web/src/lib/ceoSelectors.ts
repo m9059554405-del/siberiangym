@@ -85,19 +85,24 @@ export interface RevenuePoint {
   PERSONAL: number
   GROUP: number
   ANCILLARY: number
+  REFUND: number
 }
 
 interface TxLike {
   date: string
   amount: number
-  category: 'MEMBERSHIP' | 'PERSONAL' | 'GROUP' | 'ANCILLARY'
+  category: 'MEMBERSHIP' | 'PERSONAL' | 'GROUP' | 'ANCILLARY' | 'REFUND'
+}
+
+function emptyRevenuePoint(key: string): RevenuePoint {
+  return { key, total: 0, MEMBERSHIP: 0, PERSONAL: 0, GROUP: 0, ANCILLARY: 0, REFUND: 0 }
 }
 
 function bucketRevenue(transactions: TxLike[], keyFn: (t: TxLike) => string): RevenuePoint[] {
   const map = new Map<string, RevenuePoint>()
   for (const tx of transactions) {
     const key = keyFn(tx)
-    if (!map.has(key)) map.set(key, { key, total: 0, MEMBERSHIP: 0, PERSONAL: 0, GROUP: 0, ANCILLARY: 0 })
+    if (!map.has(key)) map.set(key, emptyRevenuePoint(key))
     const row = map.get(key)!
     row.total += tx.amount
     row[tx.category] += tx.amount
@@ -114,7 +119,7 @@ export function getRevenueByDay(transactions: TxLike[], days = 30): RevenuePoint
   const points: RevenuePoint[] = []
   for (let i = 0; i < days; i++) {
     const key = isoDate(addDays(start, i))
-    points.push(map.get(key) ?? { key, total: 0, MEMBERSHIP: 0, PERSONAL: 0, GROUP: 0, ANCILLARY: 0 })
+    points.push(map.get(key) ?? emptyRevenuePoint(key))
   }
   return points
 }

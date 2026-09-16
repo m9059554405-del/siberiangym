@@ -218,7 +218,12 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
     tx: Prisma.TransactionClient,
     clientId: string,
     line: { type: OrderLineType; refId: string | null; amount: number; meta: Prisma.JsonValue },
-  ): Promise<{ description: string; trainerId: string | null; membership?: { type: MembershipType; expiresAt: Date | null } }> {
+  ): Promise<{
+    description: string;
+    trainerId: string | null;
+    membership?: { type: MembershipType; expiresAt: Date | null };
+    prevState?: Record<string, unknown>;
+  }> {
     const meta = (line.meta ?? {}) as Record<string, any>;
 
     switch (line.type) {
@@ -228,6 +233,22 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
         const validityDays = VALIDITY_DAYS[membershipType];
         const expiresAt = validityDays ? new Date(Date.now() + validityDays * 86400000) : null;
         const visitsTotal = VISITS_TOTAL[membershipType];
+        // Membership — не история, а один актуальный ряд, перезаписываемый
+        // при каждой покупке (см. комментарий у модели). Снимок состояния
+        // ДО этой перезаписи сохраняем в OrderLine.meta._prevState — без
+        // него P0.7 (возврат) не сможет откатить продление обратно.
+        const before = await tx.membership.findUnique({ where: { clientId } });
+        const prevState = before
+          ? {
+              hadMembership: true,
+              type: before.type,
+              purchasedAt: before.purchasedAt.toISOString(),
+              expiresAt: before.expiresAt?.toISOString() ?? null,
+              visitsTotal: before.visitsTotal,
+              visitsLeft: before.visitsLeft,
+              status: before.status,
+            }
+          : { hadMembership: false };
         await tx.membership.upsert({
           where: { clientId },
           create: { clientId, type: membershipType, purchasedAt: new Date(), expiresAt, visitsTotal, visitsLeft: visitsTotal, status: 'ACTIVE' },
@@ -237,6 +258,7 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
           description: `${MEMBERSHIP_LABEL[membershipType]}${expiresAt ? ` до ${expiresAt.toISOString().slice(0, 10)}` : ''}`,
           trainerId: null,
           membership: { type: membershipType, expiresAt },
+          prevState,
         };
       }
 
@@ -247,12 +269,13 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
         const trainer = await tx.trainer.findUniqueOrThrow({ where: { id: trainerId } });
         const format = formatForTariff(tariff);
         const today = new Date();
+        const prevState = { trainerId: client.trainerId, tariff: client.tariff, format: client.format };
         if (client.trainerId !== trainerId || format !== client.format) {
           await tx.clientFormatHistoryEntry.updateMany({ where: { clientId, to: null }, data: { to: today } });
           await tx.clientFormatHistoryEntry.create({ data: { clientId, trainerId, format, from: today, to: null } });
         }
         await tx.client.update({ where: { id: clientId }, data: { trainerId, tariff, format } });
-        return { description: `Тариф «${TARIFF_NAME[tariff]}» — ${trainer.name}`, trainerId };
+        return { description: `Тариф «${TARIFF_NAME[tariff]}» — ${trainer.name}`, trainerId, prevState };
       }
 
       case 'STOCK_PURCHASE': {
@@ -335,6 +358,15 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
       for (const line of order.lines) {
         const applied = await this.applyLine(tx, order.clientId, line);
         if (applied.membership) confirmedMembership = applied.membership;
+        if (applied.prevState) {
+          // Снимок состояния до применения — нужен только для отката при
+          // возврате (P0.7), в саму логику применения не участвует.
+          const existingMeta = (line.meta ?? {}) as Record<string, unknown>;
+          await tx.orderLine.update({
+            where: { id: line.id },
+            data: { meta: { ...existingMeta, _prevState: applied.prevState } as Prisma.InputJsonValue },
+          });
+        }
         await tx.transaction.create({
           data: {
             gymId: order.gymId,
@@ -426,6 +458,17 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
       where: { gymId, status: { in: ['DRAFT', 'AWAITING_PAYMENT'] } },
       include: { lines: true, client: true },
       orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  // Оплаченные заказы клиента — для того, чтобы администратор мог найти
+  // заказ и оформить по нему возврат (P0.7).
+  findPaidByClient(gymId: string, clientId: string) {
+    return this.prisma.order.findMany({
+      where: { gymId, clientId, status: 'PAID' },
+      include: { lines: true, client: true },
+      orderBy: { paidAt: 'desc' },
+      take: 20,
     });
   }
 

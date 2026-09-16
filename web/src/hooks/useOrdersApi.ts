@@ -24,6 +24,15 @@ export function useMyOrders() {
   return useQuery({ queryKey: ['orders', 'mine'], queryFn: () => api.get<Order[]>('/orders/mine') })
 }
 
+// Оплаченные заказы клиента — чтобы найти заказ и оформить по нему возврат (P0.7).
+export function usePaidOrders(clientId: string | undefined) {
+  return useQuery({
+    queryKey: ['orders', 'paid', clientId],
+    queryFn: () => api.get<Order[]>(`/orders/paid?clientId=${clientId}`),
+    enabled: !!clientId,
+  })
+}
+
 function useInvalidateAfterOrder() {
   const qc = useQueryClient()
   return () => {
