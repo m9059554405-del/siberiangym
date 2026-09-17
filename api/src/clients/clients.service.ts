@@ -9,6 +9,7 @@ import { isMinor as computeIsMinor } from './age.util';
 import { AuthService } from '../auth/auth.service';
 import { EmailService } from '../email/email.service';
 import type { JwtPayload } from '../auth/auth.service';
+import { GymsService } from '../gyms/gyms.service';
 
 @Injectable()
 export class ClientsService {
@@ -17,7 +18,43 @@ export class ClientsService {
     private readonly activityLog: ActivityLogService,
     private readonly auth: AuthService,
     private readonly email: EmailService,
+    private readonly gyms: GymsService,
   ) {}
+
+  // Межточечный поиск клиента (P1.5) — клиент с NETWORK-абонементом может
+  // прийти на любую точку сети, но карточка по-прежнему физически живёт в
+  // gymId своей "домашней" точки (полноценный пересмотр этого — за рамками
+  // одного пункта, см. P1.6/P1.8). Здесь — минимум для того, чтобы
+  // администратор чужой точки мог узнать клиента и увидеть, действует ли
+  // его абонемент именно здесь, а не только "на глаз", как раньше.
+  async networkSearch(actor: JwtPayload, query: string) {
+    const q = query.trim();
+    if (q.length < 2) return [];
+    const networkId = await this.gyms.resolveNetworkId(actor);
+    const gyms = await this.prisma.gym.findMany({ where: { networkId }, select: { id: true, name: true } });
+    const gymNameById = new Map(gyms.map((g) => [g.id, g.name]));
+    const clients = await this.prisma.client.findMany({
+      where: {
+        gymId: { in: gyms.map((g) => g.id) },
+        OR: [{ name: { contains: q, mode: 'insensitive' } }, { phone: { contains: q } }],
+      },
+      include: { membership: true },
+      orderBy: { name: 'asc' },
+      take: 20,
+    });
+    return clients.map((c) => ({
+      id: c.id,
+      name: c.name,
+      phone: c.phone,
+      gymId: c.gymId,
+      gymName: gymNameById.get(c.gymId) ?? null,
+      isHomeGym: c.gymId === actor.gymId,
+      membership: c.membership,
+      // Валидно именно здесь (P1.5): сетевой абонемент действует на любой
+      // точке; "своя точка" — только там, где карточка физически заведена.
+      validHere: !!c.membership && c.membership.status === 'ACTIVE' && (c.membership.scope === 'NETWORK' || c.gymId === actor.gymId),
+    }));
+  }
 
   // Выдаёт клиенту доступ в личный кабинет — создаёт учётную запись и
   // привязывает её к уже существующей карточке клиента. Карточка может

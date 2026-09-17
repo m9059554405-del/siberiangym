@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { ClientsService } from './clients.service';
 import { CreateClientDto } from './dto/create-client.dto';
@@ -25,6 +25,14 @@ export class ClientsController {
   @Get('me')
   findMe(@CurrentUser() user: JwtPayload) {
     return this.clients.findMe(user);
+  }
+
+  // До ':id' — иначе роутер примет "network-search" за значение :id
+  // (тот же класс бага, что уже чинили в guardians.controller, P0.6).
+  @Roles(Role.CEO, Role.STAFF)
+  @Get('network-search')
+  networkSearch(@Query('q') q: string, @CurrentUser() user: JwtPayload) {
+    return this.clients.networkSearch(user, q ?? '');
   }
 
   @Roles(Role.CEO, Role.STAFF, Role.TRAINER)

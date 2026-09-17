@@ -3,7 +3,8 @@ import { Plus, RefreshCcw, UserCog, UserPlus } from 'lucide-react'
 import { useGoSelfTraining, useTrainers } from '../../hooks/useClientApi'
 import { useCreateCashOrder } from '../../hooks/useOrdersApi'
 import { useClientConsents } from '../../hooks/useConsentsApi'
-import { useAllClients, useCreateClient, useCreateClientLogin, useUpdateClient, type CreateClientPayload } from '../../hooks/useStaffApi'
+import { useAllClients, useCreateClient, useCreateClientLogin, useNetworkClientSearch, useUpdateClient, type CreateClientPayload } from '../../hooks/useStaffApi'
+import { useNetworkGyms } from '../../hooks/useGymsApi'
 import { TARIFFS } from '../../data/tariffs'
 import { Avatar } from '../../components/ui/Avatar'
 import { Badge, Button, Card, EmptyState, SectionTitle } from '../../components/ui/Primitives'
@@ -16,6 +17,45 @@ import { usePricing } from '../../hooks/useClientApi'
 import { isLikelyMinor } from '../../lib/age'
 import { ApiError } from '../../lib/api'
 import type { Client, Gender, MembershipScope, MembershipType, Order, Tariff } from '../../types'
+
+// Межточечный поиск (P1.5) — виден только если сеть реально состоит из
+// нескольких точек, иначе не имеет смысла и только загромождает страницу.
+function NetworkClientSearchSection() {
+  const { data: networkGyms } = useNetworkGyms()
+  const [query, setQuery] = useState('')
+  const { data: results } = useNetworkClientSearch(query)
+
+  if (!networkGyms || networkGyms.length <= 1) return null
+
+  return (
+    <Card>
+      <SectionTitle title="Клиент с другой точки сети" subtitle="Если у клиента сетевой абонемент, его карточка может быть заведена не здесь" />
+      <input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Поиск по имени или телефону, по всей сети…"
+        className="mb-2 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-1.5 text-sm outline-none focus:border-[var(--accent)]"
+      />
+      {query.trim().length >= 2 && (
+        <div className="flex flex-col gap-2">
+          {(results ?? []).map((r) => (
+            <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[var(--surface-sunken)] px-3 py-2 text-sm">
+              <div>
+                <div className="font-medium">{r.name}</div>
+                <div className="text-xs text-[var(--text-faint)]">
+                  {r.phone ?? 'без телефона'} · {r.isHomeGym ? 'эта точка' : r.gymName ?? 'другая точка'}
+                  {r.membership && ` · ${MEMBERSHIP_LABEL[r.membership.type]}${r.membership.scope === 'NETWORK' ? ' (вся сеть)' : ''}`}
+                </div>
+              </div>
+              <Badge tone={r.validHere ? 'success' : 'danger'}>{r.validHere ? 'Действует здесь' : 'Не действует здесь'}</Badge>
+            </div>
+          ))}
+          {(results ?? []).length === 0 && <div className="text-xs text-[var(--text-faint)]">Никого не найдено</div>}
+        </div>
+      )}
+    </Card>
+  )
+}
 
 function Field({ label, children }: PropsWithChildren<{ label: string }>) {
   return (
@@ -203,6 +243,8 @@ export function ClientsManagePage() {
           {list.length === 0 && <EmptyState title="Никого не найдено" subtitle="Попробуйте другой запрос поиска" />}
         </div>
       </Card>
+
+      <NetworkClientSearchSection />
 
       <ClientOutreachList />
 

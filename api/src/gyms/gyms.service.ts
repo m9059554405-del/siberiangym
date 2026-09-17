@@ -15,6 +15,17 @@ export class GymsService {
     private readonly activityLog: ActivityLogService,
   ) {}
 
+  // Без проверки владения — просто "в какой сети моя текущая точка".
+  // Безопасно для любой роли (STAFF/CEO/TRAINER): не раскрывает ничего,
+  // кроме внутреннего id сети, к которой и так принадлежит их собственный
+  // gymId. Используется для чтения через всю сеть (P1.5 — межточечный
+  // поиск клиента), а не для управления сетью (для этого — только
+  // владелец, см. resolveOwnedNetworkId ниже).
+  async resolveNetworkId(actor: JwtPayload): Promise<string> {
+    const gym = await this.prisma.gym.findUniqueOrThrow({ where: { id: actor.gymId }, select: { networkId: true } });
+    return gym.networkId;
+  }
+
   async resolveOwnedNetworkId(actor: JwtPayload): Promise<string> {
     const gym = await this.prisma.gym.findUniqueOrThrow({ where: { id: actor.gymId }, select: { networkId: true } });
     const network = await this.prisma.network.findUnique({ where: { id: gym.networkId } });

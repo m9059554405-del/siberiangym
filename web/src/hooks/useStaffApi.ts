@@ -1,9 +1,31 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
-import type { Client, ClubPost, ClubPostType, Gender, MembershipType, Tariff } from '../types'
+import type { Client, ClubPost, ClubPostType, Gender, MembershipType, Membership, Tariff } from '../types'
 
 export function useAllClients() {
   return useQuery({ queryKey: ['clients', 'all'], queryFn: () => api.get<Client[]>('/clients') })
+}
+
+export interface NetworkClientResult {
+  id: string
+  name: string
+  phone: string | null
+  gymId: string
+  gymName: string | null
+  isHomeGym: boolean
+  membership: Membership | null
+  validHere: boolean
+}
+
+// Межточечный поиск клиента по всей сети (P1.5) — не только своя точка,
+// как обычный список выше. Нужен, когда клиент с сетевым абонементом
+// пришёл на точку, к которой его карточка не привязана физически.
+export function useNetworkClientSearch(query: string) {
+  return useQuery({
+    queryKey: ['clients', 'network-search', query],
+    queryFn: () => api.get<NetworkClientResult[]>(`/clients/network-search?q=${encodeURIComponent(query)}`),
+    enabled: query.trim().length >= 2,
+  })
 }
 
 export interface CreateClientPayload {
