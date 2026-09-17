@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
-import type { Client, ClubPost, ClubPostType, Gender, MembershipType, Membership, Tariff } from '../types'
+import type { Checkin, CheckinScanResult, Client, ClubPost, ClubPostType, Gender, MembershipType, Membership, Tariff } from '../types'
 
 // network=true (P1.7) — клиенты всей сети: нужно CEO-отчёту «занятость
 // тренеров» (подопечные тренера живут в разных точках). Бэкенд учитывает
@@ -84,6 +84,20 @@ export function useUnfreezeMembership() {
     mutationFn: (clientId: string) => api.post<Membership>(`/clients/${clientId}/unfreeze-membership`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['clients'] }),
   })
+}
+
+// Контроль доступа на входе (P2.2): скан QR клиента и журнал проходов
+// своей точки. Используется и CEO (страница «Вход» в кабинете владельца).
+export function useCheckinScan() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (vars: { code: string; source: 'QR' | 'MANUAL' }) => api.post<CheckinScanResult>('/checkins/scan', vars),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['checkins'] }),
+  })
+}
+
+export function useCheckins() {
+  return useQuery({ queryKey: ['checkins'], queryFn: () => api.get<Checkin[]>('/checkins') })
 }
 
 export interface OutreachRow extends Client {

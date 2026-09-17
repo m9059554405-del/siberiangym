@@ -220,6 +220,31 @@ export interface Client {
   isMinor: boolean | null
 }
 
+// Проход на входе (P2.2): одна запись — один успешный скан QR клиента.
+export type CheckinSource = 'QR' | 'MANUAL'
+
+export interface Checkin {
+  id: string
+  gymId: string
+  clientId: string
+  client?: { id: string; name: string } | null
+  at: string
+  source: CheckinSource
+}
+
+// Ответ сканера на входе: duplicate=true — повторный скан в окне дебаунса,
+// новая запись не создавалась и посещение повторно не списывалось.
+export interface CheckinScanResult {
+  duplicate: boolean
+  checkin: Checkin
+  client: {
+    id: string
+    name: string
+    homeGymName: string
+    membership: { type: MembershipType; status: MembershipStatus; expiresAt: string | null; visitsLeft: number | null } | null
+  }
+}
+
 export interface Exercise {
   id: string
   name: string

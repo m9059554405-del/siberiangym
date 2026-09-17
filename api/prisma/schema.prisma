@@ -89,6 +89,7 @@ model Gym {
   consentRecords     ConsentRecord[]
   guardians          Guardian[]
   trainerGyms        TrainerGym[]
+  checkins           CheckinEntry[]
 
   @@map("gyms")
 }
@@ -188,6 +189,7 @@ model Client {
   orders             Order[]
   consentRecords     ConsentRecord[]
   guardianLinks      GuardianChild[]
+  checkins           CheckinEntry[]
   // Необязательная обратная связь — если этот клиент сам является чьим-то
   // законным представителем (родитель, тоже тренирующийся в клубе), у него
   // есть привязанная карточка Guardian (P0.6). Guardian.linkedClientId
@@ -1241,4 +1243,33 @@ model GuardianChild {
   @@unique([guardianId, clientId])
   @@index([clientId])
   @@map("guardian_children")
+}
+
+// --- Проходы на входе (P2.2) ---
+
+// Способ, которым администратор зафиксировал проход: камера/USB-сканер
+// прочитали QR с экрана клиента — QR; код введён в поле вручную — MANUAL.
+enum CheckinSource {
+  QR
+  MANUAL
+}
+
+// Один успешный проход клиента через контроль доступа (P2.2). Дебаунс
+// повторного скана живёт в сервисе (окно поверх «последнего прохода
+// клиента», без отдельной таблицы); отказы прохода здесь не хранятся —
+// журнал отказов не запрашивался, а в activity-log каждый проход тоже
+// не пишем (это поток, а не административное действие — иначе журнал
+// изменений замусорится сотнями записей в день).
+model CheckinEntry {
+  id        String        @id @default(cuid())
+  gymId     String        @map("gym_id")
+  gym       Gym           @relation(fields: [gymId], references: [id])
+  clientId  String        @map("client_id")
+  client    Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  at        DateTime      @default(now())
+  source    CheckinSource @default(QR)
+
+  @@index([gymId, at])
+  @@index([clientId, at])
+  @@map("checkins")
 }

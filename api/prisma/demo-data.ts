@@ -199,6 +199,22 @@ async function main() {
   txRows.push({ gymId: gym.id, date: dayAt(-9), amount: -4500, category: 'REFUND', clientId: clients[3].id, description: 'Возврат абонемента по заявке клиента' })
   await prisma.transaction.createMany({ data: txRows })
 
+  // Демо-проходы через контроль доступа (P2.2): последние две недели,
+  // только клиенты с действующим абонементом (отказы прохода в журнале
+  // не живут — там одни успешные сканы).
+  const checkinRows: Array<{ gymId: string; clientId: string; at: Date; source: 'QR' | 'MANUAL' }> = []
+  const activeMembers = clients.filter((c) => c.membership?.status === 'ACTIVE')
+  for (let i = 0; i < 18; i++) {
+    checkinRows.push({
+      gymId: gym.id,
+      clientId: pick(activeMembers).id,
+      at: new Date(dayAt(-ri(0, 13)).getTime() + ri(8, 21) * 3600000 + ri(0, 59) * 60000),
+      source: i % 6 === 0 ? 'MANUAL' : 'QR',
+    })
+  }
+  checkinRows.sort((a, b) => a.at.getTime() - b.at.getTime())
+  await prisma.checkinEntry.createMany({ data: checkinRows })
+
   const bookingPool = clients.filter((c) => c.format !== 'SELF')
   let classCounter = 0
   for (let offset = -35; offset <= 7; offset++) {

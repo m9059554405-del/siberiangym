@@ -1,11 +1,12 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { Activity, CalendarDays, CreditCard, Dumbbell, Newspaper, ShoppingBag, UserSearch } from 'lucide-react'
+import { Activity, CalendarDays, CreditCard, Dumbbell, Newspaper, QrCode, ShoppingBag, UserSearch } from 'lucide-react'
 import clsx from 'clsx'
 import { ConsentGate } from '../components/ConsentGate'
 
 const TABS = [
   { to: '/client/payments', label: 'Оплата', icon: CreditCard },
   { to: '/client/calendar', label: 'Календарь', icon: CalendarDays },
+  { to: '/client/qr', label: 'Мой QR', icon: QrCode },
   { to: '/client/shop', label: 'Магазин', icon: ShoppingBag },
   { to: '/client/exercises', label: 'Упражнения', icon: Dumbbell },
   { to: '/client/trainer', label: 'Тренер', icon: UserSearch },

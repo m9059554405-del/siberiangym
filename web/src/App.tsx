@@ -14,6 +14,7 @@ import { TrainerSelectionPage } from './features/client/TrainerSelectionPage'
 import { ExercisesPage } from './features/client/ExercisesPage'
 import { NewsPage } from './features/client/NewsPage'
 import { ProgressPage } from './features/client/ProgressPage'
+import { MyQrPage } from './features/client/MyQrPage'
 
 import { ClientListPage } from './features/trainer/ClientListPage'
 import { ClientDetailPage } from './features/trainer/ClientDetailPage'
@@ -25,6 +26,7 @@ import { CleaningPage } from './features/staff/CleaningPage'
 import { EquipmentPage } from './features/staff/EquipmentPage'
 import { StockPage } from './features/shared/StockPage'
 import { OrdersPage } from './features/shared/OrdersPage'
+import { CheckinsPage } from './features/shared/CheckinsPage'
 
 import { TrainerLoadPage } from './features/ceo/TrainerLoadPage'
 import { AttendancePage } from './features/ceo/AttendancePage'
@@ -78,8 +80,9 @@ export default function App() {
             <Route path="shop" element={<ShopPage />} />
             <Route path="exercises" element={<ExercisesPage />} />
             <Route path="trainer" element={<TrainerSelectionPage />} />
-            <Route path="news" element={<NewsPage />} />
-            <Route path="progress" element={<ProgressPage />} />
+          <Route path="news" element={<NewsPage />} />
+          <Route path="progress" element={<ProgressPage />} />
+          <Route path="qr" element={<MyQrPage />} />
           </Route>
 
           <Route
@@ -103,8 +106,9 @@ export default function App() {
               </RequireRole>
             }
           >
-            <Route index element={<ClientsManagePage />} />
-            <Route path="orders" element={<OrdersPage />} />
+          <Route index element={<ClientsManagePage />} />
+          <Route path="checkins" element={<CheckinsPage />} />
+          <Route path="orders" element={<OrdersPage />} />
             <Route path="news" element={<NewsComposerPage />} />
             <Route path="cleaning" element={<CleaningPage />} />
             <Route path="equipment" element={<EquipmentPage />} />
@@ -121,8 +125,9 @@ export default function App() {
           >
             <Route index element={<TrainerLoadPage />} />
             <Route path="trainers/:trainerId" element={<TrainerDetailPage />} />
-            <Route path="attendance" element={<AttendancePage />} />
-            <Route path="revenue" element={<RevenuePage />} />
+          <Route path="attendance" element={<AttendancePage />} />
+          <Route path="checkins" element={<CheckinsPage />} />
+          <Route path="revenue" element={<RevenuePage />} />
             <Route path="clients" element={<ClientBasePage />} />
             <Route path="gyms" element={<GymsPage />} />
             <Route path="orders" element={<OrdersPage />} />

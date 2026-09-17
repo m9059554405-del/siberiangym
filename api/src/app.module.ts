@@ -28,6 +28,7 @@ import { ConsentsModule } from './consents/consents.module';
 import { StorageModule } from './storage/storage.module';
 import { GuardiansModule } from './guardians/guardians.module';
 import { GymsModule } from './gyms/gyms.module';
+import { CheckinsModule } from './checkins/checkins.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { GymsModule } from './gyms/gyms.module';
     StorageModule,
     GuardiansModule,
     GymsModule,
+    CheckinsModule,
   ],
 })
 export class AppModule {}
