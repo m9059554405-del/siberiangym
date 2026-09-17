@@ -9,6 +9,7 @@ import { formatForTariff, MEMBERSHIP_LABEL, VALIDITY_DAYS, VISITS_TOTAL } from '
 import { TARIFF_NAME, TARIFF_PRICE } from '../clients/tariffs.const';
 import { isMinor as computeIsMinor } from '../clients/age.util';
 import { amountsMatchToKopeck, parseFiscalReceiptQr } from './receipt-qr.util';
+import { overlaps, type TimeRange } from '../schedule/time-overlap.util';
 import type { JwtPayload } from '../auth/auth.service';
 
 const AWAITING_PAYMENT_TIMEOUT_MINUTES = Number(process.env.ORDER_AWAITING_PAYMENT_TIMEOUT_MINUTES ?? 120);
@@ -118,6 +119,44 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  // P2.7: защита от двойного бронирования — у клиента не может быть двух
+  // оплаченных активностей (персональная тренировка или групповое занятие),
+  // пересекающихся по времени. Проверяется и при сборке заказа (быстрая
+  // обратная связь), и повторно в транзакции подтверждения чека. Слоты с
+  // завершившимся статусом (PAST_*) тоже считаются занятым временем —
+  // неявка не освобождает интервал для повторной продажи «в прошлое».
+  // Известное окно: два заказа одного клиента подтверждаются одновременно —
+  // каждая транзакция блокирует свою строку ресурса и не видит незакоммиченную
+  // соседнюю; окно в секунды, полная гарантия потребовала бы глобальной
+  // блокировки клиента на каждую запись, что несоразмерно проблеме.
+  private async assertClientFreeAt(
+    db: Pick<Prisma.TransactionClient, 'personalSlot' | 'groupClassBooking'>,
+    clientId: string,
+    range: TimeRange,
+    target: string,
+  ): Promise<void> {
+    const [slots, groupBookings] = await Promise.all([
+      db.personalSlot.findMany({
+        where: { clientId, status: { in: ['BOOKED', 'PAST_COMPLETED', 'PAST_MISSED'] } },
+        include: { trainer: { select: { name: true } } },
+      }),
+      db.groupClassBooking.findMany({ where: { clientId }, include: { groupClass: { include: { trainer: { select: { name: true } } } } } }),
+    ]);
+    const slotClash = slots.find((s) => overlaps(range, { date: s.date, start: s.start, end: s.end }));
+    if (slotClash) {
+      throw new ConflictException(
+        `Двойное бронирование: у клиента уже есть персональная тренировка ${slotClash.date.toISOString().slice(0, 10)} ${slotClash.start}–${slotClash.end} (${slotClash.trainer.name}), она пересекается с ${target}`,
+      );
+    }
+    const groupClash = groupBookings.find((b) => overlaps(range, { date: b.groupClass.date, start: b.groupClass.start, end: b.groupClass.end }));
+    if (groupClash) {
+      const gc = groupClash.groupClass;
+      throw new ConflictException(
+        `Двойное бронирование: клиент уже записан на «${gc.type}» ${gc.date.toISOString().slice(0, 10)} ${gc.start}–${gc.end} (${gc.trainer.name}), это пересекается с ${target}`,
+      );
+    }
+  }
+
   private async quoteLine(gymId: string, clientId: string, input: OrderLineInputDto): Promise<QuotedLine> {
     const meta = (input.meta ?? {}) as Record<string, unknown>;
 
@@ -194,6 +233,9 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
         if (!gc) throw new NotFoundException('Занятие не найдено');
         if (gc.bookings.some((b) => b.clientId === clientId)) throw new BadRequestException('Клиент уже записан на это занятие');
         if (gc.bookings.length >= gc.capacity) throw new BadRequestException('Мест не осталось');
+        // P2.7: preflight двойного бронирования — финальная проверка
+        // повторяется в транзакции подтверждения чека.
+        await this.assertClientFreeAt(this.prisma, clientId, { date: gc.date, start: gc.start, end: gc.end }, 'выбранным занятием');
         const pricing = await this.prisma.membershipPricing.findUnique({ where: { gymId } });
         return { type: OrderLineType.GROUP_CLASS_BOOKING, refId: gc.id, amount: pricing?.groupSingle ?? 0, meta: { trainerId: gc.trainerId } };
       }
@@ -203,6 +245,9 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
         const slot = await this.prisma.personalSlot.findFirst({ where: { id: input.refId, gymId }, include: { trainer: true } });
         if (!slot) throw new NotFoundException('Слот не найден');
         if (slot.status !== 'FREE') throw new BadRequestException('Слот уже занят');
+        // P2.7: preflight двойного бронирования — финальная проверка
+        // повторяется в транзакции подтверждения чека.
+        await this.assertClientFreeAt(this.prisma, clientId, { date: slot.date, start: slot.start, end: slot.end }, 'выбранным слотом');
         return { type: OrderLineType.PERSONAL_SLOT_BOOKING, refId: slot.id, amount: slot.trainer.personalSessionPrice, meta: { trainerId: slot.trainerId } };
       }
 
@@ -265,8 +310,9 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
   // Transaction (это делает вызывающий код в confirmReceipt внутри общей
   // транзакции БД, вместе для всех позиций разом). Повторно проверяет, что
   // ограниченный ресурс (шкафчик/слот/место в группе) всё ещё свободен —
-  // окно между сборкой заказа и подтверждением чека ничем не заблокировано
-  // (гонки при одновременном захвате ресурса — отдельный техдолг, см. P3.10).
+  // окно между сборкой заказа и подтверждением чека ничем не заблокировано.
+  // Захват слота/места в группе с P2.7 сериализуется блокировкой строки
+  // ресурса (FOR UPDATE); шкафчики остаются check-then-act (P3.10).
   private async applyLine(
     tx: Prisma.TransactionClient,
     clientId: string,
@@ -357,11 +403,16 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
       }
 
       case 'GROUP_CLASS_BOOKING': {
+        // P2.7/P3.10: блокируем строку занятия до конца транзакции —
+        // параллельные подтверждения заказов на то же занятие выстроятся
+        // в очередь и второй увидит уже актуальное число записей.
+        await tx.$queryRaw`SELECT id FROM group_classes WHERE id = ${line.refId!} FOR UPDATE`;
         const gc = await tx.groupClass.findUniqueOrThrow({ where: { id: line.refId! }, include: { bookings: true } });
         if (gc.bookings.some((b) => b.clientId === clientId)) throw new ConflictException('Клиент уже записан на это занятие');
         if (gc.bookings.length >= gc.capacity) {
           throw new ConflictException('Мест на занятии больше не осталось — кто-то занял их, пока заказ ожидал оплаты');
         }
+        await this.assertClientFreeAt(tx, clientId, { date: gc.date, start: gc.start, end: gc.end }, 'оплачиваемым занятием');
         await tx.groupClassBooking.create({ data: { groupClassId: gc.id, clientId } });
         return {
           description: `Запись на групповую тренировку — ${gc.type}`,
@@ -376,10 +427,15 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
       }
 
       case 'PERSONAL_SLOT_BOOKING': {
+        // P2.7/P3.10: блокируем строку слота до конца транзакции —
+        // параллельные подтверждения не смогут молча перезаписать чужую
+        // бронь (раньше оба читали FREE и второй затирал первого).
+        await tx.$queryRaw`SELECT id FROM personal_slots WHERE id = ${line.refId!} FOR UPDATE`;
         const slot = await tx.personalSlot.findUniqueOrThrow({ where: { id: line.refId! }, include: { trainer: true } });
         if (slot.status !== 'FREE') {
           throw new ConflictException('Слот больше не свободен — кто-то занял его, пока заказ ожидал оплаты');
         }
+        await this.assertClientFreeAt(tx, clientId, { date: slot.date, start: slot.start, end: slot.end }, 'оплачиваемой тренировкой');
         await tx.personalSlot.update({ where: { id: slot.id }, data: { status: 'BOOKED', clientId } });
         return {
           description: `Персональная тренировка — ${slot.trainer.name}`,

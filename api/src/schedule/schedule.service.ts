@@ -12,6 +12,7 @@ import { GymsService } from '../gyms/gyms.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { startOfDay } from '../clients/membership.const';
 import { LATE_CANCEL_WINDOW_HOURS, hoursBefore, startsAt } from './schedule.const';
+import { overlaps, type TimeRange } from './time-overlap.util';
 
 // Резолвит clientId для self-service действий: клиент может действовать
 // только от своего имени, CEO/STAFF должны явно передать clientId.
@@ -60,8 +61,32 @@ export class ScheduleService {
     });
   }
 
+  // P2.7: время тренера — неделимый ресурс всей сети, а не точки: тренер
+  // работает на нескольких площадках (P1.3), и слоты/группы в разных
+  // gyms не должны пересекаться по времени. Проверяется при создании
+  // любой новой активности тренера (слот или групповое занятие).
+  private async assertTrainerFreeAt(trainerId: string, range: TimeRange, what: string) {
+    const [slots, classes] = await Promise.all([
+      this.prisma.personalSlot.findMany({ where: { trainerId } }),
+      this.prisma.groupClass.findMany({ where: { trainerId } }),
+    ]);
+    const slotClash = slots.find((s) => overlaps(range, { date: s.date, start: s.start, end: s.end }));
+    if (slotClash) {
+      throw new BadRequestException(
+        `У тренера в это время уже есть персональный слот ${slotClash.date.toISOString().slice(0, 10)} ${slotClash.start}–${slotClash.end} — возможно, на другой точке сети. ${what} не создан`,
+      );
+    }
+    const classClash = classes.find((c) => overlaps(range, { date: c.date, start: c.start, end: c.end }));
+    if (classClash) {
+      throw new BadRequestException(
+        `У тренера в это время уже идёт «${classClash.type}» ${classClash.date.toISOString().slice(0, 10)} ${classClash.start}–${classClash.end} — возможно, на другой точке сети. ${what} не создан`,
+      );
+    }
+  }
+
   async createGroupClass(actor: JwtPayload, dto: CreateGroupClassDto) {
     const trainer = await this.trainers.assertTrainerAtGym(dto.trainerId, actor.gymId);
+    await this.assertTrainerFreeAt(dto.trainerId, { date: new Date(dto.date), start: dto.start, end: dto.end }, 'Занятие');
     const gc = await this.prisma.groupClass.create({
       data: { gymId: actor.gymId, ...dto, date: new Date(dto.date) },
     });
@@ -177,6 +202,7 @@ export class ScheduleService {
 
   async createPersonalSlot(actor: JwtPayload, dto: CreatePersonalSlotDto) {
     await this.trainers.assertTrainerAtGym(dto.trainerId, actor.gymId);
+    await this.assertTrainerFreeAt(dto.trainerId, { date: new Date(dto.date), start: dto.start, end: dto.end }, 'Слот');
     return this.prisma.personalSlot.create({
       data: { gymId: actor.gymId, trainerId: dto.trainerId, date: new Date(dto.date), start: dto.start, end: dto.end, status: 'FREE' },
     });
