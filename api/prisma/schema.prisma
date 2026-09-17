@@ -191,6 +191,8 @@ model Client {
   guardianLinks      GuardianChild[]
   checkins           CheckinEntry[]
   groupClassWaitlist GroupClassWaitlistEntry[]
+  pushSubscriptions  PushSubscription[]
+  notifications      ClientNotification[]
   // Необязательная обратная связь — если этот клиент сам является чьим-то
   // законным представителем (родитель, тоже тренирующийся в клубе), у него
   // есть привязанная карточка Guardian (P0.6). Guardian.linkedClientId
@@ -1265,6 +1267,66 @@ model GuardianChild {
   @@unique([guardianId, clientId])
   @@index([clientId])
   @@map("guardian_children")
+}
+
+// --- Уведомления (P2.4) ---
+
+// Настройки Web Push (VAPID) — синглтон на инсталляцию. Ключи генерируются
+// при первом старте (в .env их нет намеренно: прод-ключи меняются реже
+// деплоя, а хранить их в БД проще, чем требовать ручную генерацию).
+model AppSetting {
+  id        String   @id @default("singleton")
+  vapidPublicKey  String @map("vapid_public_key")
+  vapidPrivateKey String @map("vapid_private_key")
+  vapidSubject    String @default("mailto:no-reply@siberiangym.ru") @map("vapid_subject")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("app_settings")
+}
+
+// Подписка браузера клиента на Web Push (P2.4). endpoint — URL push-сервиса
+// браузера; при 404/410 от сервиса подписка удаляется отправителем.
+model PushSubscription {
+  id        String   @id @default(cuid())
+  clientId  String   @map("client_id")
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([clientId])
+  @@map("push_subscriptions")
+}
+
+// Одно уведомление клиента (журнал и очередь одновременно): planned —
+// scheduledFor в будущем и ещё не отправлено (диспетчер подберёт),
+// sent — доставлено хотя бы по одному каналу. Уникальность
+// (kind, refId, clientId) защищает от дублей напоминаний диспетчером.
+enum NotificationChannel {
+  PUSH
+  EMAIL
+  SMS
+}
+
+model ClientNotification {
+  id           String              @id @default(cuid())
+  clientId     String              @map("client_id")
+  client       Client              @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  kind         String // BOOKING_CREATED | REMINDER_1H | SLOT_CANCELLED ...
+  refId        String?             @map("ref_id")
+  title        String
+  body         String
+  channels     NotificationChannel[]
+  scheduledFor DateTime            @default(now()) @map("scheduled_for")
+  sentAt       DateTime?           @map("sent_at")
+  readAt       DateTime?           @map("read_at")
+  createdAt    DateTime            @default(now()) @map("created_at")
+
+  @@unique([kind, refId, clientId])
+  @@index([clientId, createdAt])
+  @@index([sentAt, scheduledFor])
+  @@map("client_notifications")
 }
 
 // --- Проходы на входе (P2.2) ---

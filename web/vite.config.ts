@@ -31,6 +31,9 @@ export default defineConfig({
         // Всё под /api — реальные данные, не кэшируем как статику;
         // навигационные запросы (HashRouter) всегда падают на index.html.
         navigateFallbackDenylist: [/^\/api\//],
+        // Обработчик Web Push (P2.4): generateSW не встраивает свой код,
+        // поэтому доклеиваем его отдельным скриптом из public/.
+        importScripts: ['push-handler.js'],
         runtimeCaching: [
           {
             urlPattern: /\/api\//,

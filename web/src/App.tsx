@@ -15,6 +15,7 @@ import { ExercisesPage } from './features/client/ExercisesPage'
 import { NewsPage } from './features/client/NewsPage'
 import { ProgressPage } from './features/client/ProgressPage'
 import { MyQrPage } from './features/client/MyQrPage'
+import { NotificationsPage } from './features/client/NotificationsPage'
 
 import { ClientListPage } from './features/trainer/ClientListPage'
 import { ClientDetailPage } from './features/trainer/ClientDetailPage'
@@ -83,6 +84,7 @@ export default function App() {
           <Route path="news" element={<NewsPage />} />
           <Route path="progress" element={<ProgressPage />} />
           <Route path="qr" element={<MyQrPage />} />
+          <Route path="notifications" element={<NotificationsPage />} />
           </Route>
 
           <Route

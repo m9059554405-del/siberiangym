@@ -11,6 +11,7 @@ import type {
   Locker,
   Measurement,
   MembershipPricing,
+  NotificationsFeed,
   PersonalSlot,
   Program,
   ProgramDay,
@@ -247,6 +248,63 @@ export function useSendFeedback(clientId: string | undefined) {
     mutationFn: (text: string) => api.post<FeedbackMessage>(`/clients/${clientId}/feedback`, { text }),
     onSuccess: invalidate,
   })
+}
+
+// --- Уведомления (P2.4) ---
+
+// Колокольчик в шапке дергает тот же фид; для не-клиентов запрос выключен
+// (эндпоинт только для CLIENT, лишний 403 в консоли не нужен).
+export function useNotifications(enabled = true) {
+  return useQuery({
+    queryKey: ['notifications'],
+    queryFn: () => api.get<NotificationsFeed>('/notifications'),
+    enabled,
+    refetchInterval: 60_000,
+  })
+}
+
+export function useMarkNotificationRead() {
+  const invalidate = useInvalidate([['notifications']])
+  return useMutation({
+    mutationFn: (id: string) => api.post(`/notifications/${id}/read`),
+    onSuccess: invalidate,
+  })
+}
+
+export function useMarkAllNotificationsRead() {
+  const invalidate = useInvalidate([['notifications']])
+  return useMutation({
+    mutationFn: () => api.post('/notifications/read-all'),
+    onSuccess: invalidate,
+  })
+}
+
+// Включение Web Push (P2.4): разрешение → подписка браузера с VAPID-ключом
+// сервера → регистрация подписки. Возвращает текст ошибки или null.
+function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const raw = atob(base64)
+  const output = new Uint8Array(new ArrayBuffer(raw.length))
+  for (let i = 0; i < raw.length; i++) output[i] = raw.charCodeAt(i)
+  return output
+}
+
+export async function enablePushNotifications(): Promise<string | null> {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return 'Браузер не поддерживает push-уведомления'
+  const permission = await Notification.requestPermission()
+  if (permission !== 'granted') return 'Разрешение на уведомления не выдано'
+  try {
+    const registration = await navigator.serviceWorker.ready
+    const { publicKey } = await api.get<{ publicKey: string }>('/notifications/vapid-public-key')
+    const sub = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) })
+    const json = sub.toJSON()
+    if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) return 'Браузер вернул неполную подписку'
+    await api.post('/notifications/subscribe', { endpoint: json.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth })
+    return null
+  } catch (err) {
+    return err instanceof Error ? err.message : 'Не удалось оформить push-подписку'
+  }
 }
 
 export type { ProgramDay }

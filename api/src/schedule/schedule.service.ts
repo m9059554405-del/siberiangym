@@ -9,6 +9,7 @@ import type { JwtPayload } from '../auth/auth.service';
 import { SlotStatus } from '@prisma/client';
 import { TrainersService } from '../trainers/trainers.service';
 import { GymsService } from '../gyms/gyms.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { startOfDay } from '../clients/membership.const';
 
 // Резолвит clientId для self-service действий: клиент может действовать
@@ -31,6 +32,7 @@ export class ScheduleService {
     private readonly trainers: TrainersService,
     private readonly gyms: GymsService,
     private readonly email: EmailService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // Тренер на нескольких точках сети (P1.3) должен видеть свой календарь
@@ -178,13 +180,27 @@ export class ScheduleService {
   // чеком, см. api/src/orders/orders.service.ts.
 
   async cancelPersonalSlot(actor: JwtPayload, slotId: string) {
-    const slot = await this.prisma.personalSlot.findFirst({ where: { id: slotId, gymId: actor.gymId } });
+    const slot = await this.prisma.personalSlot.findFirst({ where: { id: slotId, gymId: actor.gymId }, include: { trainer: true } });
     if (!slot) throw new NotFoundException('Слот не найден');
     if (actor.role === 'CLIENT') {
       const client = await this.prisma.client.findUnique({ where: { userId: actor.sub } });
       if (!client || slot.clientId !== client.id) throw new ForbiddenException('Это не ваша запись');
     }
-    return this.prisma.personalSlot.update({ where: { id: slotId }, data: { status: 'FREE', clientId: null } });
+    await this.prisma.personalSlot.update({ where: { id: slotId }, data: { status: 'FREE', clientId: null } });
+    // Отмена забронированного слота — «критичное» напоминание из P2.4:
+    // клиент мог уже планировать день вокруг тренировки, поэтому канал
+    // SMS подключается как fallback (в демо логируется). Отмену самим
+    // клиентом тоже шлём — подтверждение не помешает.
+    if (slot.clientId && slot.status === 'BOOKED') {
+      await this.notifications.notify(
+        slot.clientId,
+        'SLOT_CANCELLED',
+        'Персональная тренировка отменена',
+        `Слот ${slot.date.toISOString().slice(0, 10)} ${slot.start} у тренера ${slot.trainer.name} освобождён. Запишитесь на другое время.`,
+        slot.id,
+      );
+    }
+    return this.prisma.personalSlot.findUniqueOrThrow({ where: { id: slotId } });
   }
 
   // Тренер/администратор отмечает явку после тренировки.

@@ -220,6 +220,30 @@ export interface Client {
   isMinor: boolean | null
 }
 
+// Уведомления клиента (P2.4): журнал push/email/SMS-рассылки. scheduledFor
+// — когда должно уйти (равно созданию для мгновенных), sentAt/readAt —
+// фактические отправка и прочтение.
+export type NotificationChannel = 'PUSH' | 'EMAIL' | 'SMS'
+
+export interface ClientNotification {
+  id: string
+  clientId: string
+  kind: string
+  refId: string | null
+  title: string
+  body: string
+  channels: NotificationChannel[]
+  scheduledFor: string
+  sentAt: string | null
+  readAt: string | null
+  createdAt: string
+}
+
+export interface NotificationsFeed {
+  items: ClientNotification[]
+  unread: number
+}
+
 // Проход на входе (P2.2): одна запись — один успешный скан QR клиента.
 export type CheckinSource = 'QR' | 'MANUAL'
 

@@ -3,6 +3,7 @@ import { MembershipScope, MembershipType, OrderLineType, Prisma, Tariff, Transac
 import { PrismaService } from '../prisma/prisma.service';
 import { ActivityLogService } from '../activity-log/activity-log.service';
 import { EmailService } from '../email/email.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateOrderDto, OrderLineInputDto } from './dto/create-order.dto';
 import { formatForTariff, MEMBERSHIP_LABEL, VALIDITY_DAYS, VISITS_TOTAL } from '../clients/membership.const';
 import { TARIFF_NAME, TARIFF_PRICE } from '../clients/tariffs.const';
@@ -44,6 +45,7 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly activityLog: ActivityLogService,
     private readonly email: EmailService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // Просрочка "брошенных" заказов — периодический сдвиг статуса без внешнего
@@ -274,6 +276,9 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
     trainerId: string | null;
     membership?: { type: MembershipType; expiresAt: Date | null };
     prevState?: Record<string, unknown>;
+    // Уведомление клиенту по этой позиции (P2.4) — отправляется вызывающим
+    // кодом ПОСЛЕ коммита транзакции, чтобы не подтверждать незакоммиченное.
+    notify?: { kind: string; title: string; body: string; refId?: string | null };
   }> {
     const meta = (line.meta ?? {}) as Record<string, any>;
 
@@ -358,7 +363,16 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
           throw new ConflictException('Мест на занятии больше не осталось — кто-то занял их, пока заказ ожидал оплаты');
         }
         await tx.groupClassBooking.create({ data: { groupClassId: gc.id, clientId } });
-        return { description: `Запись на групповую тренировку — ${gc.type}`, trainerId: gc.trainerId };
+        return {
+          description: `Запись на групповую тренировку — ${gc.type}`,
+          trainerId: gc.trainerId,
+          notify: {
+            kind: 'BOOKING_CREATED',
+            title: 'Вы записаны на групповое занятие',
+            body: `«${gc.type}» ${gc.date.toISOString().slice(0, 10)} в ${gc.start}, зона ${gc.zone}. Напомним за час до начала.`,
+            refId: gc.id,
+          },
+        };
       }
 
       case 'PERSONAL_SLOT_BOOKING': {
@@ -367,7 +381,16 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
           throw new ConflictException('Слот больше не свободен — кто-то занял его, пока заказ ожидал оплаты');
         }
         await tx.personalSlot.update({ where: { id: slot.id }, data: { status: 'BOOKED', clientId } });
-        return { description: `Персональная тренировка — ${slot.trainer.name}`, trainerId: slot.trainerId };
+        return {
+          description: `Персональная тренировка — ${slot.trainer.name}`,
+          trainerId: slot.trainerId,
+          notify: {
+            kind: 'BOOKING_CREATED',
+            title: 'Вы записаны на персональную тренировку',
+            body: `Слот ${slot.date.toISOString().slice(0, 10)} в ${slot.start}, тренер ${slot.trainer.name}. Напомним за час до начала.`,
+            refId: slot.id,
+          },
+        };
       }
 
       default:
@@ -411,10 +434,12 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
 
     const paidAt = new Date();
     let confirmedMembership: { type: MembershipType; expiresAt: Date | null } | undefined;
+    const pendingNotifications: Array<{ kind: string; title: string; body: string; refId?: string | null }> = [];
     await this.prisma.$transaction(async (tx) => {
       for (const line of order.lines) {
         const applied = await this.applyLine(tx, order.clientId, line);
         if (applied.membership) confirmedMembership = applied.membership;
+        if (applied.notify) pendingNotifications.push(applied.notify);
         if (applied.prevState) {
           // Снимок состояния до применения — нужен только для отката при
           // возврате (P0.7), в саму логику применения не участвует.
@@ -456,6 +481,12 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
       order.client.name,
       `${order.lines.length} поз. на ${order.totalAmount} ₽, чек fn=${receipt.fn}`,
     );
+
+    // Подтверждения записи (P2.4) — после коммита, рядом с письмом об
+    // абонементе: та же причина — не подтверждать незакоммиченное.
+    for (const n of pendingNotifications) {
+      await this.notifications.notify(order.clientId, n.kind, n.title, n.body, n.refId);
+    }
 
     // Письмо шлём уже после успешного коммита транзакции — сбой почты не
     // должен откатывать оплату, а незакоммиченной оплаты письмо подтверждать не должно.
