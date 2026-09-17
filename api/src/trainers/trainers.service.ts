@@ -7,6 +7,7 @@ import { ActivityLogService } from '../activity-log/activity-log.service';
 import { AuthService } from '../auth/auth.service';
 import { EmailService } from '../email/email.service';
 import { GymsService } from '../gyms/gyms.service';
+import { ConsentsService } from '../consents/consents.service';
 
 @Injectable()
 export class TrainersService {
@@ -16,6 +17,7 @@ export class TrainersService {
     private readonly auth: AuthService,
     private readonly email: EmailService,
     private readonly gyms: GymsService,
+    private readonly consents: ConsentsService,
   ) {}
 
   async findMe(actor: JwtPayload) {
@@ -112,6 +114,8 @@ export class TrainersService {
     return { ok: true };
   }
 
+  // P1.4 — "в один проход": карточка + статус занятости + точки сети +
+  // согласие сотрудника + логин, вместо нескольких отдельных действий.
   async create(actor: JwtPayload, dto: CreateTrainerDto) {
     const trainer = await this.prisma.trainer.create({
       data: {
@@ -122,9 +126,32 @@ export class TrainersService {
         experienceYears: dto.experienceYears ?? 0,
         personalSessionPrice: dto.personalSessionPrice,
         avatarHue: Math.floor(Math.random() * 360),
+        employmentType: dto.employmentType,
+        revenueSharePercent: dto.revenueSharePercent,
       },
     });
     await this.activityLog.log(actor, 'Добавил тренера', trainer.name, dto.specialization);
+
+    // Назначение на доп. точки сразу при заведении — только CEO
+    // (владелец сети); STAFF заводит тренера строго в рамках своей
+    // текущей точки, без права раскидать его по всей сети.
+    if (dto.additionalGymIds?.length) {
+      if (actor.role !== 'CEO') {
+        throw new ForbiddenException('Назначить тренера на несколько точек сети может только CEO');
+      }
+      for (const gymId of dto.additionalGymIds) {
+        await this.assignToGym(actor, trainer.id, gymId);
+      }
+    }
+
+    if (dto.staffConsentGranted) {
+      await this.consents.grantForTrainer(actor, trainer.id);
+    }
+
+    if (dto.loginEmail && dto.loginPassword) {
+      await this.createLogin(actor, trainer.id, { email: dto.loginEmail, password: dto.loginPassword });
+    }
+
     return trainer;
   }
 }

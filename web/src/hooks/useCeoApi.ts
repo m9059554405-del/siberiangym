@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
-import type { DirectorMessage, Gym, MembershipPricing, OfferAudience, TransactionCategory, WorkoutLogEntry } from '../types'
+import type { DirectorMessage, EmploymentType, Gym, MembershipPricing, OfferAudience, Trainer, TransactionCategory, WorkoutLogEntry } from '../types'
 
 // Точки сети, на которых работает тренер (P1.3) — домашняя (создана там)
 // плюс дополнительные, назначенные CEO.
@@ -137,10 +137,26 @@ export function useCreateStaff() {
   })
 }
 
+// P1.4: заведение тренера "в один проход" — статус занятости обязателен,
+// остальное (точки сети сверх текущей, согласие сотрудника, логин) опционально.
+export interface CreateTrainerPayload {
+  name: string
+  specialization: string
+  bio?: string
+  experienceYears?: number
+  personalSessionPrice: number
+  employmentType: EmploymentType
+  revenueSharePercent?: number
+  additionalGymIds?: string[]
+  staffConsentGranted?: boolean
+  loginEmail?: string
+  loginPassword?: string
+}
+
 export function useCreateTrainer() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (dto: { name: string; specialization: string; bio?: string; experienceYears?: number; personalSessionPrice: number }) => api.post('/trainers', dto),
+    mutationFn: (dto: CreateTrainerPayload) => api.post<Trainer>('/trainers', dto),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['trainers'] }),
   })
 }

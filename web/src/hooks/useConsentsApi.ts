@@ -20,6 +20,23 @@ export function useClientConsents(clientId: string | undefined) {
   })
 }
 
+// Аудит согласия сотрудника-тренера (P1.4, STAFF_PDN) — read-only для CEO/STAFF.
+export function useTrainerConsent(trainerId: string | undefined) {
+  return useQuery({
+    queryKey: ['consents', 'trainer', trainerId],
+    queryFn: () => api.get<{ granted: boolean; updatedAt: string | null }>(`/consents/trainer/${trainerId}`),
+    enabled: !!trainerId,
+  })
+}
+
+export function useGrantTrainerConsent() {
+  const invalidate = useInvalidateConsents()
+  return useMutation({
+    mutationFn: (trainerId: string) => api.post(`/consents/trainers/${trainerId}/grant`),
+    onSuccess: invalidate,
+  })
+}
+
 function useInvalidateConsents() {
   const qc = useQueryClient()
   return () => qc.invalidateQueries({ queryKey: ['consents'] })

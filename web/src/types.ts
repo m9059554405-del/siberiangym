@@ -149,6 +149,8 @@ export interface TrainerCompetitionPhoto {
   url: string
   caption: string | null
 }
+export type EmploymentType = 'EMPLOYEE' | 'SELF_EMPLOYED' | 'SOLE_PROPRIETOR'
+
 export interface Trainer {
   id: string
   name: string
@@ -162,6 +164,8 @@ export interface Trainer {
   workHours: TrainerWorkHour[]
   credentials: TrainerCredential[]
   competitionPhotos: TrainerCompetitionPhoto[]
+  employmentType: EmploymentType | null
+  revenueSharePercent: number | null
 }
 
 export type MembershipScope = 'SINGLE_GYM' | 'NETWORK'

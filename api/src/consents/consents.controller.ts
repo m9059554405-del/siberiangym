@@ -76,4 +76,18 @@ export class ConsentsController {
   grantForMinor(@Param('guardianId') guardianId: string, @Body() dto: GrantMinorConsentDto, @CurrentUser() user: JwtPayload) {
     return this.consents.grantForMinor(user, guardianId, dto.clientId, dto.type);
   }
+
+  // Согласие тренера-сотрудника (P1.4, STAFF_PDN) — оформляет CEO/STAFF
+  // по факту подписанной на месте формы, тем же принципом, что и P0.6.
+  @Roles(Role.CEO, Role.STAFF)
+  @Get('trainer/:trainerId')
+  getForTrainer(@Param('trainerId') trainerId: string, @CurrentUser() user: JwtPayload) {
+    return this.consents.getTrainerStatus(user, trainerId);
+  }
+
+  @Roles(Role.CEO, Role.STAFF)
+  @Post('trainers/:trainerId/grant')
+  grantForTrainer(@Param('trainerId') trainerId: string, @CurrentUser() user: JwtPayload) {
+    return this.consents.grantForTrainer(user, trainerId);
+  }
 }

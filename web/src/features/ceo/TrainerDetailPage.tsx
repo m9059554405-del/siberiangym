@@ -1,19 +1,42 @@
 import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, Building2, Plus, X } from 'lucide-react'
+import { ArrowLeft, Building2, Plus, ShieldCheck, X } from 'lucide-react'
 import { useTrainers } from '../../hooks/useClientApi'
 import { useAllClients } from '../../hooks/useStaffApi'
 import { useAllWorkoutLogs, useAssignTrainerGym, useTransactions, useTrainerGyms, useUnassignTrainerGym } from '../../hooks/useCeoApi'
 import { useNetworkGyms } from '../../hooks/useGymsApi'
+import { useGrantTrainerConsent, useTrainerConsent } from '../../hooks/useConsentsApi'
 import { tariffById } from '../../data/tariffs'
 import { Avatar } from '../../components/ui/Avatar'
 import { Badge, Button, Card, EmptyState, SectionTitle, StatTile } from '../../components/ui/Primitives'
 import { formatMoney, getInitials } from '../../lib/format'
-import type { ClientFormat, MembershipStatus } from '../../types'
+import type { ClientFormat, EmploymentType, MembershipStatus } from '../../types'
 
 const FORMAT_LABEL: Record<ClientFormat, string> = { PERSONAL: 'Персонально', GROUP: 'Группа', SELF: 'Самостоятельно' }
 const STATUS_TONE: Record<MembershipStatus, 'success' | 'warning' | 'danger'> = { ACTIVE: 'success', FROZEN: 'warning', EXPIRED: 'danger' }
 const STATUS_LABEL: Record<MembershipStatus, string> = { ACTIVE: 'Активен', FROZEN: 'Заморожен', EXPIRED: 'Истёк' }
+const EMPLOYMENT_LABEL: Record<EmploymentType, string> = { EMPLOYEE: 'Штатный сотрудник', SELF_EMPLOYED: 'Самозанятый', SOLE_PROPRIETOR: 'ИП' }
+
+// Согласие тренера-сотрудника на обработку ПДн (P1.4, STAFF_PDN) — тот же
+// read-only аудит + возможность зафиксировать по факту бумаги, что и у
+// законного представителя в ClientsManagePage (P0.6).
+function TrainerConsentSection({ trainerId }: { trainerId: string }) {
+  const { data } = useTrainerConsent(trainerId)
+  const grant = useGrantTrainerConsent()
+  if (!data) return null
+  return (
+    <Card>
+      <SectionTitle title="Согласие сотрудника" subtitle="Обработка персональных данных как сотрудника (P1.4)" />
+      {data.granted ? (
+        <Badge tone="success"><ShieldCheck size={12} className="mr-1" /> Подписано</Badge>
+      ) : (
+        <Button size="sm" variant="secondary" onClick={() => grant.mutate(trainerId)} disabled={grant.isPending}>
+          Зафиксировать согласие
+        </Button>
+      )}
+    </Card>
+  )
+}
 
 // Точки сети, на которых работает тренер (P1.3) — домашняя (где заведена
 // карточка) плюс любое число дополнительных, назначенных здесь. Список
@@ -97,6 +120,7 @@ export function TrainerDetailPage() {
         <div>
           <div className="text-lg font-semibold">{trainer.name}</div>
           <div className="text-sm text-[var(--text-muted)]">{trainer.specialization} · {trainer.experienceYears} лет опыта</div>
+          {trainer.employmentType && <Badge tone="accent">{EMPLOYMENT_LABEL[trainer.employmentType]}</Badge>}
         </div>
       </Card>
 
@@ -104,9 +128,17 @@ export function TrainerDetailPage() {
         <StatTile label="Подопечных" value={own.length} />
         <StatTile label="Выручка от тренера" value={`${formatMoney(totalRevenue)} ₽`} />
         <StatTile label="Платежей" value={payments.length} />
+        {trainer.revenueSharePercent != null && (
+          <StatTile
+            label="Причитается тренеру"
+            value={`${formatMoney(Math.round((totalRevenue * trainer.revenueSharePercent) / 100))} ₽`}
+            hint={`${trainer.revenueSharePercent}% от выручки`}
+          />
+        )}
       </div>
 
       <TrainerGymsSection trainerId={trainer.id} />
+      <TrainerConsentSection trainerId={trainer.id} />
 
       <Card>
         <SectionTitle title="Подопечные и результаты" subtitle="Формат, тариф, статус абонемента, выполнение программы" />

@@ -7,5 +7,6 @@ import { ActivityLogModule } from '../activity-log/activity-log.module';
   imports: [ActivityLogModule],
   providers: [ConsentsService],
   controllers: [ConsentsController],
+  exports: [ConsentsService],
 })
 export class ConsentsModule {}

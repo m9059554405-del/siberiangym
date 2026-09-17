@@ -263,6 +263,18 @@ model ClientFormatHistoryEntry {
 
 // --- Тренер ---
 
+// Статус занятости тренера (P1.4) — важно для 54-ФЗ (расчёты с
+// самозанятыми оформляются иначе, чем зарплата штатному сотруднику) и
+// для будущего расчёта выплат. Nullable на уровне Trainer — у уже
+// существующих (реальных прод-) тренеров этот вопрос никто не задавал,
+// выдумывать им значение задним числом неверно; обязательно только для
+// НОВЫХ тренеров, заводимых через форму.
+enum EmploymentType {
+  EMPLOYEE // штатный сотрудник
+  SELF_EMPLOYED // самозанятый
+  SOLE_PROPRIETOR // ИП
+}
+
 model Trainer {
   id     String  @id @default(cuid())
   gymId  String  @map("gym_id")
@@ -278,6 +290,10 @@ model Trainer {
   experienceYears      Int     @default(0) @map("experience_years")
   personalSessionPrice Int     @map("personal_session_price")
   externalUrl          String? @map("external_url")
+  // P1.4 — оба nullable по той же причине, что и employmentType: не
+  // придумываем задним числом значения существующим тренерам.
+  employmentType       EmploymentType? @map("employment_type")
+  revenueSharePercent  Int?            @map("revenue_share_percent")
 
   clients           Client[]
   workHours         TrainerWorkHour[]
@@ -286,6 +302,7 @@ model Trainer {
   groupClasses      GroupClass[]
   personalSlots     PersonalSlot[]
   transactions      Transaction[]
+  consentRecords    ConsentRecord[]
   // Дополнительные точки сети, где тренер тоже ведёт занятия (P1.3) —
   // `gymId` выше остаётся "домашней" точкой (где заведена карточка и
   // логин), эта связь — только для точек СВЕРХ неё. Тренер без единой
@@ -1145,11 +1162,17 @@ enum ConsentType {
 // createdAt. Не путать с P0.7 (Refund) — это другой журнал, здесь про
 // согласие на обработку данных, а не про деньги.
 model ConsentRecord {
-  id         String      @id @default(cuid())
-  gymId      String      @map("gym_id")
-  gym        Gym         @relation(fields: [gymId], references: [id])
-  clientId   String      @map("client_id")
-  client     Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  id       String @id @default(cuid())
+  gymId    String @map("gym_id")
+  gym      Gym    @relation(fields: [gymId], references: [id])
+  // Ровно один из clientId/trainerId заполнен — subject согласия либо
+  // клиент, либо (с P1.4, тип STAFF_PDN) тренер как сотрудник. clientId
+  // стал nullable только сейчас (P1.4); у всех существующих записей он
+  // и так был заполнен, поэтому ослабление NOT NULL безопасно без бэкфилла.
+  clientId  String?     @map("client_id")
+  client    Client?     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  trainerId String?     @map("trainer_id")
+  trainer   Trainer?    @relation(fields: [trainerId], references: [id], onDelete: Cascade)
   type       ConsentType
   version    String // версия текста согласия на момент этой записи, например "2026-09-14"
   granted    Boolean // true — дано этой записью, false — отозвано этой записью
@@ -1165,6 +1188,7 @@ model ConsentRecord {
 
   @@index([gymId])
   @@index([clientId, type])
+  @@index([trainerId, type])
   @@map("consent_records")
 }
 

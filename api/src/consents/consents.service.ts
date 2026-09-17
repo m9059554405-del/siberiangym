@@ -123,6 +123,33 @@ export class ConsentsService {
     return record;
   }
 
+  // Согласие тренера как сотрудника (P1.4, STAFF_PDN) — как и согласие
+  // законного представителя, физически подписывается на бумаге при
+  // заведении/на месте и заносится администрацией, а не самим тренером
+  // через self-service (тем более что при заведении "в один проход" у
+  // тренера может ещё не быть своего логина).
+  async grantForTrainer(actor: JwtPayload, trainerId: string) {
+    const trainer = await this.prisma.trainer.findFirst({ where: { id: trainerId, gymId: actor.gymId } });
+    if (!trainer) throw new NotFoundException('Тренер не найден');
+    const record = await this.prisma.consentRecord.create({
+      data: { gymId: actor.gymId, trainerId, type: 'STAFF_PDN', version: CONSENT_TEXTS_VERSION, granted: true },
+    });
+    await this.activityLog.log(actor, 'Зафиксировал согласие сотрудника на обработку ПДн', trainer.name, buildConsentTexts().STAFF_PDN.title);
+    return record;
+  }
+
+  // Аудит для CEO — есть ли у тренера подписанное согласие, тем же
+  // read-only принципом, что и статус клиента (getClientStatus).
+  async getTrainerStatus(actor: JwtPayload, trainerId: string) {
+    const trainer = await this.prisma.trainer.findFirst({ where: { id: trainerId, gymId: actor.gymId } });
+    if (!trainer) throw new NotFoundException('Тренер не найден');
+    const latest = await this.prisma.consentRecord.findFirst({
+      where: { trainerId, type: 'STAFF_PDN' },
+      orderBy: { createdAt: 'desc' },
+    });
+    return { granted: latest?.granted ?? false, updatedAt: latest?.createdAt ?? null };
+  }
+
   async grant(actor: JwtPayload, type: ConsentType, ip: string | undefined, userAgent: string | undefined) {
     const client = await this.resolveClient(actor);
     const record = await this.prisma.consentRecord.create({

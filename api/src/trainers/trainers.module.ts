@@ -4,9 +4,10 @@ import { TrainersController } from './trainers.controller';
 import { ActivityLogModule } from '../activity-log/activity-log.module';
 import { AuthModule } from '../auth/auth.module';
 import { GymsModule } from '../gyms/gyms.module';
+import { ConsentsModule } from '../consents/consents.module';
 
 @Module({
-  imports: [ActivityLogModule, AuthModule, GymsModule],
+  imports: [ActivityLogModule, AuthModule, GymsModule, ConsentsModule],
   providers: [TrainersService],
   controllers: [TrainersController],
   exports: [TrainersService],
