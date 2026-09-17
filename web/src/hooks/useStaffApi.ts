@@ -68,6 +68,24 @@ export function useCreateClientLogin(clientId: string | undefined) {
   })
 }
 
+// Заморозка/разморозка абонемента (P2.1) — административное действие
+// (CEO/STAFF), поэтому живёт в staff-хуках, а не в клиентских.
+export function useFreezeMembership() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (vars: { clientId: string; days: number }) => api.post<Membership>(`/clients/${vars.clientId}/freeze-membership`, { days: vars.days }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['clients'] }),
+  })
+}
+
+export function useUnfreezeMembership() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (clientId: string) => api.post<Membership>(`/clients/${clientId}/unfreeze-membership`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['clients'] }),
+  })
+}
+
 export interface OutreachRow extends Client {
   latestOutreachNote: { id: string; called: boolean; reason: string; date: string; authorName: string } | null
 }

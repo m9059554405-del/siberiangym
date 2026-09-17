@@ -1,10 +1,20 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Membership } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActivityLogService } from '../activity-log/activity-log.service';
 import { CreateClientDto } from './dto/create-client.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
 import { CreateLoginDto } from './dto/create-login.dto';
-import { formatForTariff, VALIDITY_DAYS, VISITS_TOTAL } from './membership.const';
+import {
+  addDays,
+  diffInDays,
+  effectiveMembershipStatus,
+  formatForTariff,
+  FREEZE_LIMIT_DAYS,
+  startOfDay,
+  VALIDITY_DAYS,
+  VISITS_TOTAL,
+} from './membership.const';
 import { isMinor as computeIsMinor } from './age.util';
 import { AuthService } from '../auth/auth.service';
 import { EmailService } from '../email/email.service';
@@ -42,18 +52,22 @@ export class ClientsService {
       orderBy: { name: 'asc' },
       take: 20,
     });
-    return clients.map((c) => ({
-      id: c.id,
-      name: c.name,
-      phone: c.phone,
-      gymId: c.gymId,
-      gymName: gymNameById.get(c.gymId) ?? null,
-      isHomeGym: c.gymId === actor.gymId,
-      membership: c.membership,
-      // Валидно именно здесь (P1.5): сетевой абонемент действует на любой
-      // точке; "своя точка" — только там, где карточка физически заведена.
-      validHere: !!c.membership && c.membership.status === 'ACTIVE' && (c.membership.scope === 'NETWORK' || c.gymId === actor.gymId),
-    }));
+    return clients.map((c) => {
+      const membership = c.membership ? { ...c.membership, status: effectiveMembershipStatus(c.membership) } : null;
+      return {
+        id: c.id,
+        name: c.name,
+        phone: c.phone,
+        gymId: c.gymId,
+        gymName: gymNameById.get(c.gymId) ?? null,
+        isHomeGym: c.gymId === actor.gymId,
+        membership,
+        // Валидно именно здесь (P1.5): сетевой абонемент действует на любой
+        // точке; "своя точка" — только там, где карточка физически заведена.
+        // Статус — эффективный: закончилась заморозка = снова действует.
+        validHere: !!membership && membership.status === 'ACTIVE' && (membership.scope === 'NETWORK' || c.gymId === actor.gymId),
+      };
+    });
   }
 
   // Выдаёт клиенту доступ в личный кабинет — создаёт учётную запись и
@@ -88,6 +102,15 @@ export class ClientsService {
     return { ...client, isMinor: computeIsMinor(client.birthday, minAge) };
   }
 
+  // «Ленивая» разморозка (P2.1): статус FROZEN лежит в БД до первой
+  // записи, дожимать его планировщиком некому — поэтому наружу карточка
+  // клиента всегда отдаёт эффективный статус: заморозка закончилась,
+  // значит абонемент уже снова действует. Мутирует только копию ответа.
+  private attachEffectiveMembershipStatus<T extends { membership: Membership | null }>(client: T): T {
+    if (!client.membership) return client;
+    return { ...client, membership: { ...client.membership, status: effectiveMembershipStatus(client.membership) } };
+  }
+
   // ?network=1 (P1.7) — вся сеть, но только для CEO: отчёту «занятость
   // тренеров» нужны подопечные из всех точек, ведь клиенты тренера живут
   // в разных залах. STAFF всегда видит строго свою точку, а поштучные
@@ -107,7 +130,7 @@ export class ClientsService {
         include: { membership: true, trainer: true, formatHistory: true },
         orderBy: { createdAt: 'desc' },
       });
-      return clients.map((c) => this.attachIsMinor(c, minAgeByGym.get(c.gymId) ?? 18));
+      return clients.map((c) => this.attachEffectiveMembershipStatus(this.attachIsMinor(c, minAgeByGym.get(c.gymId) ?? 18)));
     }
     const [clients, minAge] = await Promise.all([
       this.prisma.client.findMany({
@@ -117,7 +140,7 @@ export class ClientsService {
       }),
       this.getSelfTrainingMinAge(actor.gymId),
     ]);
-    return clients.map((c) => this.attachIsMinor(c, minAge));
+    return clients.map((c) => this.attachEffectiveMembershipStatus(this.attachIsMinor(c, minAge)));
   }
 
   async findOne(gymId: string, id: string) {
@@ -129,7 +152,7 @@ export class ClientsService {
       this.getSelfTrainingMinAge(gymId),
     ]);
     if (!client) throw new NotFoundException('Клиент не найден');
-    return this.attachIsMinor(client, minAge);
+    return this.attachEffectiveMembershipStatus(this.attachIsMinor(client, minAge));
   }
 
   // Тренер видит только карточки своих подопечных.
@@ -155,7 +178,7 @@ export class ClientsService {
       this.getSelfTrainingMinAge(actor.gymId),
     ]);
     if (!client) throw new NotFoundException('У пользователя нет карточки клиента');
-    return this.attachIsMinor(client, minAge);
+    return this.attachEffectiveMembershipStatus(this.attachIsMinor(client, minAge));
   }
 
   // CEO/STAFF могут управлять любым клиентом зала. Сам клиент — только
@@ -276,5 +299,88 @@ export class ClientsService {
 
     await this.activityLog.log(actor, 'Перешёл на самостоятельные тренировки', client.name, 'Тренер и тариф сняты');
     return this.findOne(actor.gymId, clientId);
+  }
+
+  // Заморозка абонемента (P2.1): болезнь/отпуск. Срок действия
+  // продлевается на число дней заморозки сразу, лимит дней — на один
+  // оплаченный период (сбрасывается новой покупкой/продлением).
+  // Развилки, решённые здесь явно:
+  //  - брони на замороженный период НЕ отменяются автоматически: групповые
+  //    и персональные занятия уже оплачены чеком (P0.2), отмена — отдельное
+  //    ручное действие администратора, а не побочный эффект заморозки;
+  //  - графика платежей рассрочки в модели пока нет (P0.8 не реализован),
+  //    сдвигать нечего — при появлении рассрочки учесть здесь;
+  //  - новый период при продлении всегда считается от даты оплаты
+  //    (текущее поведение OrdersService), заморозка продлевает только
+  //    текущий срок и на будущие покупки не переносится.
+  async freezeMembership(actor: JwtPayload, clientId: string, days: number) {
+    const client = await this.prisma.client.findFirst({ where: { id: clientId, gymId: actor.gymId }, include: { membership: true } });
+    if (!client) throw new NotFoundException('Клиент не найден');
+    const m = client.membership;
+    if (!m) throw new BadRequestException('У клиента нет абонемента — замораживать нечего');
+
+    const today = startOfDay(new Date());
+    if (effectiveMembershipStatus(m) === 'FROZEN') {
+      throw new ConflictException(`Абонемент уже заморожен до ${m.freezeEndsAt!.toISOString().slice(0, 10)} — сначала разморозьте его`);
+    }
+    if (!m.expiresAt) throw new BadRequestException('Разовое посещение не имеет срока действия — заморозка не применима');
+    if (diffInDays(today, m.expiresAt) <= 0) throw new BadRequestException('Срок абонемента уже истёк — сначала продлите его, заморозка не имеет смысла');
+
+    const limit = FREEZE_LIMIT_DAYS[m.type];
+    if (limit === 0) throw new BadRequestException('Абонемент этого типа замораживать нельзя');
+    const remaining = limit - m.frozenDaysUsed;
+    if (days > remaining) {
+      throw new BadRequestException(
+        remaining > 0
+          ? `Лимит заморозки для этого абонемента — ${limit} дн., использовано ${m.frozenDaysUsed} дн., доступно ещё ${remaining} дн.`
+          : `Лимит заморозки для этого абонемента (${limit} дн.) уже израсходован полностью`,
+      );
+    }
+
+    // Заморозка начинается сегодня, freezeEndsAt — первый день, когда
+    // абонемент снова действует. expiresAt двигаем на те же дни вперёд.
+    const freezeEndsAt = addDays(today, days);
+    const expiresAt = addDays(m.expiresAt, days);
+    const updated = await this.prisma.membership.update({
+      where: { clientId },
+      data: { status: 'FROZEN', freezeEndsAt, expiresAt, frozenDaysUsed: { increment: days } },
+    });
+    await this.activityLog.log(
+      actor,
+      'Заморозил абонемент',
+      client.name,
+      `${days} дн., по ${addDays(freezeEndsAt, -1).toISOString().slice(0, 10)}; срок действия продлён до ${expiresAt.toISOString().slice(0, 10)}`,
+    );
+    return updated;
+  }
+
+  // Досрочная разморозка (P2.1): неизрасходованные дни возвращаются и в
+  // срок абонемента, и в лимит заморозки — клиент не должен терять дни,
+  // которыми не воспользовался. Заморозка, чей срок уже прошёл, здесь
+  // просто приводит строку в БД к фактическому состоянию (ACTIVE).
+  async unfreezeMembership(actor: JwtPayload, clientId: string) {
+    const client = await this.prisma.client.findFirst({ where: { id: clientId, gymId: actor.gymId }, include: { membership: true } });
+    if (!client) throw new NotFoundException('Клиент не найден');
+    const m = client.membership;
+    if (!m) throw new BadRequestException('У клиента нет абонемента');
+    if (m.status !== 'FROZEN') throw new BadRequestException('Абонемент не заморожен');
+
+    const today = startOfDay(new Date());
+    const data: { status: 'ACTIVE'; freezeEndsAt: null; expiresAt?: Date; frozenDaysUsed?: number } = {
+      status: 'ACTIVE',
+      freezeEndsAt: null,
+    };
+    let detail = 'Заморозка уже закончилась к моменту разморозки — срок не менялся';
+    if (m.freezeEndsAt && m.expiresAt) {
+      const left = diffInDays(today, m.freezeEndsAt);
+      if (left > 0) {
+        data.expiresAt = addDays(m.expiresAt, -left);
+        data.frozenDaysUsed = Math.max(0, m.frozenDaysUsed - left);
+        detail = `Досрочно, на ${left} дн. раньше; срок действия возвращён к ${data.expiresAt.toISOString().slice(0, 10)}`;
+      }
+    }
+    const updated = await this.prisma.membership.update({ where: { clientId }, data });
+    await this.activityLog.log(actor, 'Разморозил абонемент', client.name, detail);
+    return updated;
   }
 }

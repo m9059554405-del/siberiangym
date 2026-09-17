@@ -87,6 +87,10 @@ export class RefundsService {
             visitsTotal: prev.visitsTotal,
             visitsLeft: prev.visitsLeft,
             status: prev.status,
+            // Заморозка (P2.1): снимок мог быть сделан до её появления —
+            // тогда откатываем к "не заморожен, лимит не трать".
+            frozenDaysUsed: prev.frozenDaysUsed ?? 0,
+            freezeEndsAt: prev.freezeEndsAt ? new Date(prev.freezeEndsAt) : null,
           },
         });
         return `Абонемент возвращён к состоянию до заказа (${MEMBERSHIP_LABEL[prev.type as keyof typeof MEMBERSHIP_LABEL]})`;

@@ -4,6 +4,7 @@ import { ClientsService } from './clients.service';
 import { CreateClientDto } from './dto/create-client.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
 import { CreateLoginDto } from './dto/create-login.dto';
+import { FreezeMembershipDto } from './dto/freeze-membership.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -68,5 +69,21 @@ export class ClientsController {
   @Post(':id/create-login')
   createLogin(@Param('id') id: string, @Body() dto: CreateLoginDto, @CurrentUser() user: JwtPayload) {
     return this.clients.createLogin(user, id, dto);
+  }
+
+  // Заморозка/разморозка абонемента (P2.1) — административное действие:
+  // лимит и сроки контролирует администратор, сам клиент попросить
+  // заморозку через приложение не может (иначе лимит обходится без
+  // подтверждения клуба).
+  @Roles(Role.CEO, Role.STAFF)
+  @Post(':id/freeze-membership')
+  freezeMembership(@Param('id') id: string, @Body() dto: FreezeMembershipDto, @CurrentUser() user: JwtPayload) {
+    return this.clients.freezeMembership(user, id, dto.days);
+  }
+
+  @Roles(Role.CEO, Role.STAFF)
+  @Post(':id/unfreeze-membership')
+  unfreezeMembership(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.clients.unfreezeMembership(user, id);
   }
 }

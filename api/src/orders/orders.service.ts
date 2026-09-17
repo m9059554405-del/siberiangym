@@ -300,12 +300,16 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
               visitsTotal: before.visitsTotal,
               visitsLeft: before.visitsLeft,
               status: before.status,
+              frozenDaysUsed: before.frozenDaysUsed,
+              freezeEndsAt: before.freezeEndsAt?.toISOString() ?? null,
             }
           : { hadMembership: false };
+        // Новый оплаченный период: бюджет заморозки (P2.1) начинается
+        // заново, незакрытая заморозка старого периода не переносится.
         await tx.membership.upsert({
           where: { clientId },
-          create: { clientId, type: membershipType, scope, purchasedAt: new Date(), expiresAt, visitsTotal, visitsLeft: visitsTotal, status: 'ACTIVE' },
-          update: { type: membershipType, scope, purchasedAt: new Date(), expiresAt, visitsTotal, visitsLeft: visitsTotal, status: 'ACTIVE' },
+          create: { clientId, type: membershipType, scope, purchasedAt: new Date(), expiresAt, visitsTotal, visitsLeft: visitsTotal, status: 'ACTIVE', frozenDaysUsed: 0, freezeEndsAt: null },
+          update: { type: membershipType, scope, purchasedAt: new Date(), expiresAt, visitsTotal, visitsLeft: visitsTotal, status: 'ACTIVE', frozenDaysUsed: 0, freezeEndsAt: null },
         });
         return {
           description: `${MEMBERSHIP_LABEL[membershipType]}${scope === 'NETWORK' ? ' (вся сеть)' : ''}${expiresAt ? ` до ${expiresAt.toISOString().slice(0, 10)}` : ''}`,

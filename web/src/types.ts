@@ -183,6 +183,10 @@ export interface Membership {
   visitsTotal: number | null
   visitsLeft: number | null
   status: MembershipStatus
+  // Заморозка (P2.1): израсходовано дней лимита в текущем периоде и дата,
+  // когда заморозка заканчивается (первый день, когда абонемент снова действует).
+  frozenDaysUsed: number
+  freezeEndsAt: string | null
 }
 
 export interface ClientFormatHistoryEntry {

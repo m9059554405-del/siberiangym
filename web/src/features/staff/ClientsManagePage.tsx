@@ -1,9 +1,9 @@
 import { useMemo, useState, type PropsWithChildren } from 'react'
-import { Plus, RefreshCcw, UserCog, UserPlus } from 'lucide-react'
+import { Plus, RefreshCcw, Snowflake, UserCog, UserPlus } from 'lucide-react'
 import { useGoSelfTraining, useTrainers } from '../../hooks/useClientApi'
 import { useCreateCashOrder } from '../../hooks/useOrdersApi'
 import { useClientConsents } from '../../hooks/useConsentsApi'
-import { useAllClients, useCreateClient, useCreateClientLogin, useNetworkClientSearch, useUpdateClient, type CreateClientPayload } from '../../hooks/useStaffApi'
+import { useAllClients, useCreateClient, useCreateClientLogin, useFreezeMembership, useNetworkClientSearch, useUnfreezeMembership, useUpdateClient, type CreateClientPayload } from '../../hooks/useStaffApi'
 import { useNetworkGyms } from '../../hooks/useGymsApi'
 import { TARIFFS } from '../../data/tariffs'
 import { Avatar } from '../../components/ui/Avatar'
@@ -71,6 +71,80 @@ const STATUS_TONE: Record<string, 'success' | 'warning' | 'danger'> = { ACTIVE: 
 const STATUS_LABEL: Record<string, string> = { ACTIVE: 'Активен', FROZEN: 'Заморожен', EXPIRED: 'Истёк' }
 const MEMBERSHIP_LABEL: Record<MembershipType, string> = {
   SINGLE: 'Разовое занятие', MONTHLY: 'Абонемент на месяц', PACK10: 'Пакет на 10 занятий', PACK20: 'Пакет на 20 занятий',
+}
+
+// Зеркало api/src/clients/membership.const.ts (FREEZE_LIMIT_DAYS): вебу
+// нужно подсказать лимит до отправки запроса, API всё равно проверяет
+// своё значение — источник правды там.
+const FREEZE_LIMIT_DAYS: Record<MembershipType, number> = { SINGLE: 0, MONTHLY: 14, PACK10: 14, PACK20: 21 }
+
+// Заморозка абонемента (P2.1) в карточке клиента: только для срочных
+// типов (не разовое посещение) и только в статусах ACTIVE/FROZEN —
+// истёкший сначала продлевается. Досрочная разморозка возвращает
+// неизрасходованные дни и в срок, и в лимит (логика на API).
+function MembershipFreezeSection({ client }: { client: Client }) {
+  const m = client.membership
+  const freeze = useFreezeMembership()
+  const unfreeze = useUnfreezeMembership()
+  const [days, setDays] = useState('7')
+  const [error, setError] = useState<string | null>(null)
+
+  if (!m || !m.expiresAt || FREEZE_LIMIT_DAYS[m.type] === 0) return null
+  if (m.status === 'EXPIRED') return null
+
+  const limit = FREEZE_LIMIT_DAYS[m.type]
+  const remaining = Math.max(0, limit - m.frozenDaysUsed)
+  const daysNum = Number(days)
+
+  function submitFreeze() {
+    setError(null)
+    freeze.mutate(
+      { clientId: client.id, days: daysNum },
+      { onError: (err) => setError(err instanceof ApiError ? err.message : 'Не удалось заморозить абонемент') },
+    )
+  }
+
+  function submitUnfreeze() {
+    setError(null)
+    unfreeze.mutate(client.id, {
+      onError: (err) => setError(err instanceof ApiError ? err.message : 'Не удалось разморозить абонемент'),
+    })
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-lg bg-[var(--surface-sunken)] px-3 py-2.5">
+      {error && <div className="text-xs text-red-600">{error}</div>}
+      {m.status === 'FROZEN' ? (
+        <>
+          <div className="text-xs text-[var(--text-muted)]">
+            Заморожен до {m.freezeEndsAt ? m.freezeEndsAt.slice(0, 10) : '—'} · использовано {m.frozenDaysUsed} из {limit} дн. лимита
+          </div>
+          <Button size="sm" variant="secondary" disabled={unfreeze.isPending} onClick={submitUnfreeze}>
+            <Snowflake size={13} /> Разморозить досрочно
+          </Button>
+        </>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="number"
+              min={1}
+              max={Math.min(30, remaining)}
+              value={days}
+              onChange={(e) => setDays(e.target.value)}
+              className="w-20 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-2.5 py-1.5 text-sm outline-none focus:border-[var(--accent)]"
+            />
+            <span className="text-xs text-[var(--text-faint)]">
+              дней · лимит {limit} дн., доступно ещё {remaining}
+            </span>
+          </div>
+          <Button size="sm" variant="secondary" disabled={remaining === 0 || freeze.isPending || !Number.isInteger(daysNum) || daysNum < 1} onClick={submitFreeze}>
+            <Snowflake size={13} /> Заморозить
+          </Button>
+        </>
+      )}
+    </div>
+  )
 }
 
 interface ClientDraft {
@@ -443,6 +517,7 @@ function EditClientForm({
             {client.membership.expiresAt && ` до ${client.membership.expiresAt.slice(0, 10)}`}
           </div>
         )}
+        <MembershipFreezeSection client={client} />
         <select value={renewType} onChange={(e) => setRenewType(e.target.value as MembershipType)}
           className="rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-2.5 py-2 text-sm">
           {pricing && (Object.keys(MEMBERSHIP_LABEL) as MembershipType[]).map((m) => (

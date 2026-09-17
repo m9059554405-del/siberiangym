@@ -229,18 +229,24 @@ enum MembershipScope {
 
 // Текущий абонемент клиента — всегда один актуальный ряд на клиента
 // (история смен абонемента не нужна отдельной таблицей: каждая покупка
-// просто перезаписывает эти поля, как и в демо-версии).
+// просто перезаписывает эти поля, как и в демо-версии). Поля заморозки
+// (P2.1): freezeEndsAt — первый день, когда абонемент снова действует
+// (статус FROZEN в БД «оттаивает» лениво на чтении, планировщика нет);
+// frozenDaysUsed — сколько дней заморозки израсходовано в текущем
+// оплаченном периоде, сбрасывается при новой покупке/продлении.
 model Membership {
-  id          String           @id @default(cuid())
-  clientId    String           @unique @map("client_id")
-  client      Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  type        MembershipType
-  scope       MembershipScope  @default(SINGLE_GYM)
-  purchasedAt DateTime         @map("purchased_at")
-  expiresAt   DateTime?        @map("expires_at") @db.Date
-  visitsTotal Int?             @map("visits_total")
-  visitsLeft  Int?             @map("visits_left")
-  status      MembershipStatus @default(ACTIVE)
+  id             String           @id @default(cuid())
+  clientId       String           @unique @map("client_id")
+  client         Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  type           MembershipType
+  scope          MembershipScope  @default(SINGLE_GYM)
+  purchasedAt    DateTime         @map("purchased_at")
+  expiresAt      DateTime?        @map("expires_at") @db.Date
+  visitsTotal    Int?             @map("visits_total")
+  visitsLeft     Int?             @map("visits_left")
+  status         MembershipStatus @default(ACTIVE)
+  frozenDaysUsed Int              @default(0) @map("frozen_days_used")
+  freezeEndsAt   DateTime?        @map("freeze_ends_at") @db.Date
 
   @@map("memberships")
 }

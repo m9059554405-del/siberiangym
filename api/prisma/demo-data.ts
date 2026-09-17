@@ -149,6 +149,8 @@ async function main() {
             visitsTotal: membershipType === 'PACK10' ? 10 : membershipType === 'PACK20' ? 20 : undefined,
             visitsLeft: membershipType === 'PACK10' ? ri(2, 9) : membershipType === 'PACK20' ? ri(4, 18) : undefined,
             status: expired ? 'EXPIRED' : frozen ? 'FROZEN' : 'ACTIVE',
+            frozenDaysUsed: frozen ? ri(3, 9) : undefined,
+            freezeEndsAt: frozen ? dayAt(ri(1, 5)) : undefined,
           },
         } : undefined,
       },
