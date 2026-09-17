@@ -96,6 +96,7 @@ async function main() {
   await prisma.inventoryCount.deleteMany({ where: { gymId: gym.id } })
   await prisma.stockBatch.deleteMany({ where: { gymId: gym.id } })
   await prisma.catalogItem.deleteMany({ where: { gymId: gym.id } })
+  await prisma.lead.deleteMany({ where: { gymId: gym.id } })
   await prisma.client.deleteMany({ where: { gymId: gym.id } })
   await prisma.trainer.deleteMany({ where: { gymId: gym.id } })
 
@@ -283,6 +284,27 @@ async function main() {
   })
   await prisma.workoutLogEntry.createMany({ data: logs })
 
+  // Гостевые карточки (лиды) — P2.6: воронка «пришёл узнать → попробовал →
+  // купил». Часть уже сконвертирована в клиентов, часть потеряна.
+  const leadDefs: Array<{ name: string; phone: string; offset: number; status: 'NEW' | 'VISITED' | 'CONVERTED' | 'LOST'; note?: string }> = [
+    { name: 'Артём Гуров', phone: '+7 913 000-11-22', offset: 2, status: 'NEW', note: 'Пришёл из Instagram, интересуется силовыми' },
+    { name: 'Кристина Лебедева', phone: '+7 913 000-33-44', offset: 1, status: 'NEW' },
+    { name: 'Павел Сомов', phone: '+7 913 000-55-66', offset: -1, status: 'VISITED', note: 'Пробная тренировка с тренером, решает до конца недели' },
+    { name: 'Алина Ким', phone: '+7 913 000-77-88', offset: -3, status: 'VISITED' },
+    { name: 'Сергей Волков', phone: '+7 913 000-99-00', offset: -9, status: 'LOST', note: 'Ушёл к конкуренту из-за цены' },
+    { name: 'Дарья Нечаева', phone: '+7 913 000-12-34', offset: -14, status: 'LOST' },
+    { name: 'Егор Титов', phone: '+7 913 000-56-78', offset: -6, status: 'CONVERTED' },
+    { name: 'Марина Денисова', phone: '+7 913 000-90-12', offset: -20, status: 'CONVERTED' },
+  ]
+  for (const l of leadDefs) {
+    await prisma.lead.create({
+      data: {
+        gymId: gym.id, name: l.name, phone: l.phone, visitDate: dayAt(l.offset), status: l.status, note: l.note ?? null,
+        ...(l.status === 'CONVERTED' ? { convertedClientId: clients[(l.offset + 30) % clients.length].id, convertedAt: dayAt(l.offset + 1) } : {}),
+      },
+    })
+  }
+
   console.log(JSON.stringify({
     gym: gym.name,
     trainers: await prisma.trainer.count({ where: { gymId: gym.id } }),
@@ -294,6 +316,7 @@ async function main() {
     groupClasses: classCounter,
     personalSlots: await prisma.personalSlot.count({ where: { gymId: gym.id } }),
     workoutLogs: logs.length,
+    leads: leadDefs.length,
   }, null, 1))
 }
 

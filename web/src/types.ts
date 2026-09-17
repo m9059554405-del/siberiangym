@@ -475,3 +475,23 @@ export interface DirectorMessage {
   repliedAt: string | null
   replySeenByClient: boolean
 }
+
+// P2.6: гостевая карточка (лид) — воронка «пришёл узнать → попробовал →
+// купил». CONVERTED закрывается только конвертацией с привязкой клиента.
+export type LeadStatus = 'NEW' | 'VISITED' | 'CONVERTED' | 'LOST'
+
+export interface Lead {
+  id: string
+  gymId: string
+  name: string
+  phone: string | null
+  email: string | null
+  visitDate: string | null
+  status: LeadStatus
+  note: string | null
+  convertedClientId: string | null
+  convertedClient: { id: string; name: string } | null
+  convertedAt: string | null
+  createdAt: string
+  updatedAt: string
+}

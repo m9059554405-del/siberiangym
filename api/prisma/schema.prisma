@@ -90,6 +90,7 @@ model Gym {
   guardians          Guardian[]
   trainerGyms        TrainerGym[]
   checkins           CheckinEntry[]
+  leads              Lead[]
 
   @@map("gyms")
 }
@@ -193,6 +194,9 @@ model Client {
   groupClassWaitlist GroupClassWaitlistEntry[]
   pushSubscriptions  PushSubscription[]
   notifications      ClientNotification[]
+  // P2.6: если клиент вырос из лида (гостевой карточки), связь сохраняется
+  // после конвертации — история воронки «пришёл узнать → купил».
+  convertedFromLeads Lead[]             @relation("LeadConversion")
   // Необязательная обратная связь — если этот клиент сам является чьим-то
   // законным представителем (родитель, тоже тренирующийся в клубе), у него
   // есть привязанная карточка Guardian (P0.6). Guardian.linkedClientId
@@ -254,6 +258,40 @@ model Membership {
   freezeEndsAt   DateTime?        @map("freeze_ends_at") @db.Date
 
   @@map("memberships")
+}
+
+// Воронка «пришёл узнать → попробовал → купил» (P2.6). Минимум по
+// бэклогу: гостевая карточка с датой визита и статусом конверсии.
+// Лид — отдельная сущность: клиент в системе появляется только когда
+// гость покупает абонемент (обычная регистрация клиента с чеком),
+// конвертация лишь фиксирует связь с созданным клиентом. Гостевого
+// прохода через контроль доступа (P2.2) для лида нет: пробное посещение
+// отмечается статусом VISITED вручную персоналом.
+enum LeadStatus {
+  NEW
+  VISITED
+  CONVERTED
+  LOST
+}
+
+model Lead {
+  id                String     @id @default(cuid())
+  gymId             String     @map("gym_id")
+  gym               Gym        @relation(fields: [gymId], references: [id])
+  name              String
+  phone             String?
+  email             String?
+  visitDate         DateTime?  @map("visit_date") @db.Date
+  status            LeadStatus @default(NEW)
+  note              String?
+  convertedClientId String?    @map("converted_client_id")
+  convertedClient   Client?    @relation("LeadConversion", fields: [convertedClientId], references: [id], onDelete: SetNull)
+  convertedAt       DateTime?  @map("converted_at")
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
+
+  @@index([gymId])
+  @@map("leads")
 }
 
 // История смены тренера/формата — нужна тренеру и в профиле клиента,

@@ -1,9 +1,10 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { Newspaper, Package, Receipt, ScanLine, SprayCan, UsersRound, Wrench } from 'lucide-react'
+import { Newspaper, Package, Receipt, ScanLine, SprayCan, UserRoundPlus, UsersRound, Wrench } from 'lucide-react'
 import clsx from 'clsx'
 
 const TABS = [
   { to: '/staff', label: 'Клиенты', icon: UsersRound, end: true },
+  { to: '/staff/leads', label: 'Гости', icon: UserRoundPlus, end: false },
   { to: '/staff/checkins', label: 'Вход', icon: ScanLine, end: false },
   { to: '/staff/orders', label: 'Заказы', icon: Receipt, end: false },
   { to: '/staff/news', label: 'Новости', icon: Newspaper, end: false },

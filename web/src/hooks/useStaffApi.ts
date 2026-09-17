@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
-import type { Checkin, CheckinScanResult, Client, ClubPost, ClubPostType, Gender, MembershipType, Membership, Tariff } from '../types'
+import type { Checkin, CheckinScanResult, Client, ClubPost, ClubPostType, Gender, Lead, MembershipType, Membership, Tariff } from '../types'
 
 // network=true (P1.7) — клиенты всей сети: нужно CEO-отчёту «занятость
 // тренеров» (подопечные тренера живут в разных точках). Бэкенд учитывает
@@ -121,5 +121,39 @@ export function useCreateClubPost() {
   return useMutation({
     mutationFn: (dto: { title: string; text: string; type: ClubPostType }) => api.post<ClubPost>('/club-posts', dto),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['club-posts'] }),
+  })
+}
+
+// Гостевые карточки (лиды) — P2.6: карточка гостя, отметка визита/потери
+// и конвертация (привязка к уже зарегистрированному клиенту).
+export function useLeads() {
+  return useQuery({ queryKey: ['leads'], queryFn: () => api.get<Lead[]>('/leads') })
+}
+
+export function useCreateLead() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (dto: { name: string; phone?: string; email?: string; visitDate?: string; note?: string }) => api.post<Lead>('/leads', dto),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['leads'] }),
+  })
+}
+
+export function useUpdateLead() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, ...dto }: { id: string; phone?: string; email?: string; visitDate?: string; note?: string; status?: 'NEW' | 'VISITED' | 'LOST' }) =>
+      api.patch<Lead>(`/leads/${id}`, dto),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['leads'] }),
+  })
+}
+
+export function useConvertLead() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, clientId }: { id: string; clientId: string }) => api.post<Lead>(`/leads/${id}/convert`, { clientId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['leads'] })
+      qc.invalidateQueries({ queryKey: ['clients'] })
+    },
   })
 }

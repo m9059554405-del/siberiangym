@@ -22,6 +22,7 @@ import { ClientDetailPage } from './features/trainer/ClientDetailPage'
 import { TrainerSchedulePage } from './features/trainer/TrainerSchedulePage'
 
 import { ClientsManagePage } from './features/staff/ClientsManagePage'
+import { LeadsPage } from './features/staff/LeadsPage'
 import { NewsComposerPage } from './features/staff/NewsComposerPage'
 import { CleaningPage } from './features/staff/CleaningPage'
 import { EquipmentPage } from './features/staff/EquipmentPage'
@@ -109,6 +110,7 @@ export default function App() {
             }
           >
           <Route index element={<ClientsManagePage />} />
+          <Route path="leads" element={<LeadsPage />} />
           <Route path="checkins" element={<CheckinsPage />} />
           <Route path="orders" element={<OrdersPage />} />
             <Route path="news" element={<NewsComposerPage />} />
