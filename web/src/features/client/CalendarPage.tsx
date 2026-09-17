@@ -5,6 +5,8 @@ import {
   useCancelGroupClassBooking,
   useCancelPersonalSlot,
   useGroupClasses,
+  useJoinGroupClassWaitlist,
+  useLeaveGroupClassWaitlist,
   useMe,
   usePersonalSlots,
   useTrainers,
@@ -30,6 +32,8 @@ export function CalendarPage() {
   const createCashOrder = useCreateCashOrder()
   const cancelGroupClassBooking = useCancelGroupClassBooking()
   const cancelPersonalSlot = useCancelPersonalSlot()
+  const joinWaitlist = useJoinGroupClassWaitlist()
+  const leaveWaitlist = useLeaveGroupClassWaitlist()
 
   const [tab, setTab] = useState<'group' | 'personal'>('group')
   const [typeFilter, setTypeFilter] = useState<string>('all')
@@ -170,28 +174,42 @@ export function CalendarPage() {
             const t = trainers?.find((tr) => tr.id === gc.trainerId)
             const booked = gc.bookings.some((b) => b.clientId === client.id)
             const full = gc.bookings.length >= gc.capacity
+            // Лист ожидания (P2.3): позиция этого клиента в очереди, если он в ней.
+            const waitlist = gc.waitlist ?? []
+            const myWaitlistIdx = waitlist.findIndex((w) => w.clientId === client.id)
             return (
               <Card key={gc.id} className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="font-medium">{gc.type}</span>
                     {booked && <Badge tone="success">Вы записаны</Badge>}
+                    {myWaitlistIdx >= 0 && !booked && <Badge tone="warning">В очереди №{myWaitlistIdx + 1}</Badge>}
                   </div>
                   <div className="mt-0.5 text-sm text-[var(--text-muted)]">
                     {formatDateLabel(gc.date)} · {gc.start}–{gc.end} · {gc.zone}
                   </div>
                   <div className="text-xs text-[var(--text-faint)]">
                     Тренер: {t?.name} · Мест: {gc.bookings.length}/{gc.capacity}
+                    {full && waitlist.length > 0 ? ` · в ожидании: ${waitlist.length}` : ''}
                   </div>
                 </div>
-                <Button
-                  size="sm"
-                  variant={booked ? 'danger' : 'primary'}
-                  disabled={!booked && full}
-                  onClick={() => (booked ? cancelGroupClassBooking.mutate(gc.id) : bookGroupClass(gc.id))}
-                >
-                  {booked ? 'Отменить' : full ? 'Нет мест' : 'Записаться'}
-                </Button>
+                {booked ? (
+                  <Button size="sm" variant="danger" onClick={() => cancelGroupClassBooking.mutate(gc.id)}>
+                    Отменить
+                  </Button>
+                ) : myWaitlistIdx >= 0 ? (
+                  <Button size="sm" variant="danger" onClick={() => leaveWaitlist.mutate(gc.id)}>
+                    Выйти из очереди
+                  </Button>
+                ) : full ? (
+                  <Button size="sm" variant="secondary" onClick={() => joinWaitlist.mutate(gc.id)}>
+                    В лист ожидания
+                  </Button>
+                ) : (
+                  <Button size="sm" variant="primary" onClick={() => bookGroupClass(gc.id)}>
+                    Записаться
+                  </Button>
+                )}
               </Card>
             )
           })}

@@ -309,6 +309,15 @@ export interface GroupClassBooking {
   id: string
   clientId: string
 }
+// Лист ожидания (P2.3): joinedAt — когда встал в очередь, notifiedAt —
+// когда пришло уведомление об освободившемся месте (null — ещё ждёт).
+export interface GroupClassWaitlistEntry {
+  id: string
+  groupClassId: string
+  clientId: string
+  joinedAt: string
+  notifiedAt: string | null
+}
 export interface GroupClass {
   id: string
   gymId: string
@@ -321,6 +330,7 @@ export interface GroupClass {
   end: string
   capacity: number
   bookings: GroupClassBooking[]
+  waitlist?: GroupClassWaitlistEntry[]
 }
 
 export interface PersonalSlot {

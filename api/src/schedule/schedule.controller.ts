@@ -31,6 +31,21 @@ export class ScheduleController {
     return this.schedule.cancelGroupClassBooking(user, id, clientId);
   }
 
+  // Лист ожидания (P2.3): встать может сам клиент или персонал за клиента
+  // (clientId в теле), выйти — так же; список очереди приходит вместе с
+  // GET /group-classes.
+  @Roles(Role.CEO, Role.STAFF, Role.CLIENT)
+  @Post('group-classes/:id/waitlist')
+  joinWaitlist(@Param('id') id: string, @Body('clientId') clientId: string | undefined, @CurrentUser() user: JwtPayload) {
+    return this.schedule.joinWaitlist(user, id, clientId);
+  }
+
+  @Roles(Role.CEO, Role.STAFF, Role.CLIENT)
+  @Post('group-classes/:id/waitlist/cancel')
+  leaveWaitlist(@Param('id') id: string, @Body('clientId') clientId: string | undefined, @CurrentUser() user: JwtPayload) {
+    return this.schedule.leaveWaitlist(user, id, clientId);
+  }
+
   @Get('personal-slots')
   listPersonalSlots(@CurrentUser() user: JwtPayload) {
     return this.schedule.listPersonalSlots(user);

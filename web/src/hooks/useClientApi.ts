@@ -150,6 +150,25 @@ export function useCancelGroupClassBooking() {
   })
 }
 
+// Лист ожидания (P2.3): клиент встаёт в очередь на заполненное занятие;
+// при освобождении места первый ждущий получает email. Персонал может
+// передать clientId, чтобы поставить клиента вручную.
+export function useJoinGroupClassWaitlist() {
+  const invalidate = useInvalidate([['group-classes']])
+  return useMutation({
+    mutationFn: (classId: string) => api.post(`/group-classes/${classId}/waitlist`),
+    onSuccess: invalidate,
+  })
+}
+
+export function useLeaveGroupClassWaitlist() {
+  const invalidate = useInvalidate([['group-classes']])
+  return useMutation({
+    mutationFn: (classId: string) => api.post(`/group-classes/${classId}/waitlist/cancel`),
+    onSuccess: invalidate,
+  })
+}
+
 // Запись на персональный слот — платное действие, с P0.2 идёт через заказ
 // (useCreateCashOrder), см. CalendarPage.tsx.
 

@@ -190,6 +190,7 @@ model Client {
   consentRecords     ConsentRecord[]
   guardianLinks      GuardianChild[]
   checkins           CheckinEntry[]
+  groupClassWaitlist GroupClassWaitlistEntry[]
   // Необязательная обратная связь — если этот клиент сам является чьим-то
   // законным представителем (родитель, тоже тренирующийся в клубе), у него
   // есть привязанная карточка Guardian (P0.6). Guardian.linkedClientId
@@ -511,6 +512,7 @@ model GroupClass {
   capacity  Int
 
   bookings GroupClassBooking[]
+  waitlist GroupClassWaitlistEntry[]
 
   @@index([gymId])
   @@index([trainerId])
@@ -527,6 +529,26 @@ model GroupClassBooking {
 
   @@unique([groupClassId, clientId])
   @@map("group_class_bookings")
+}
+
+// Лист ожидания на групповое занятие (P2.3): заполняется, когда места
+// закончились. При освобождении места (отмена записи клиентом или
+// возврат по заказу) первый ещё не уведомлённый ждущий получает email
+// (notifiedAt); место при этом НЕ резервируется — запись на занятие
+// остаётся обычной покупкой через заказ с чеком (P0.2), уведомление
+// только сообщает, что очередь подошла.
+model GroupClassWaitlistEntry {
+  id           String     @id @default(cuid())
+  groupClassId String     @map("group_class_id")
+  groupClass   GroupClass @relation(fields: [groupClassId], references: [id], onDelete: Cascade)
+  clientId     String     @map("client_id")
+  client       Client     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  joinedAt     DateTime   @default(now()) @map("joined_at")
+  notifiedAt   DateTime?  @map("notified_at")
+
+  @@unique([groupClassId, clientId])
+  @@index([groupClassId, joinedAt])
+  @@map("group_class_waitlist")
 }
 
 enum SlotStatus {

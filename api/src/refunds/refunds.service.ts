@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ActivityLogService } from '../activity-log/activity-log.service';
 import { MEMBERSHIP_LABEL } from '../clients/membership.const';
 import { amountsMatchToKopeck, parseFiscalReceiptQr } from '../orders/receipt-qr.util';
+import { ScheduleService } from '../schedule/schedule.service';
 import type { JwtPayload } from '../auth/auth.service';
 
 // Возврат оплаты (P0.7) — по 54-ФЗ отмена платежа не "удалить транзакцию из
@@ -16,6 +17,7 @@ export class RefundsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly activityLog: ActivityLogService,
+    private readonly schedule: ScheduleService,
   ) {}
 
   private async getOwnedRefund(actor: JwtPayload, refundId: string) {
@@ -57,11 +59,14 @@ export class RefundsService {
 
   // Откатывает ОДНУ позицию исходного заказа. Возвращает человекочитаемое
   // описание того, что реально произошло — для аудита (CEO должен видеть не
-  // просто "деньги вернули", а что именно откатилось).
+  // просто "деньги вернули", а что именно откатилось). freedGroupClassIds —
+  // накапливает занятия, с которых откат реально снял запись: после коммита
+  // транзакции по ним двигается лист ожидания (P2.3).
   private async rollbackLine(
     tx: Prisma.TransactionClient,
     clientId: string,
     line: { type: OrderLineType; refId: string | null; meta: Prisma.JsonValue },
+    freedGroupClassIds: string[] = [],
   ): Promise<string> {
     const meta = (line.meta ?? {}) as Record<string, any>;
     const prev = meta._prevState as Record<string, any> | undefined;
@@ -123,6 +128,7 @@ export class RefundsService {
 
       case 'GROUP_CLASS_BOOKING': {
         const deleted = await tx.groupClassBooking.deleteMany({ where: { groupClassId: line.refId!, clientId } });
+        if (deleted.count > 0) freedGroupClassIds.push(line.refId!);
         return deleted.count > 0 ? 'Запись на групповое занятие снята' : 'Запись уже была отменена клиентом ранее';
       }
 
@@ -179,9 +185,10 @@ export class RefundsService {
     }
 
     const confirmedAt = new Date();
+    const freedGroupClassIds: string[] = [];
     await this.prisma.$transaction(async (tx) => {
       for (const line of refund.order.lines) {
-        const detail = await this.rollbackLine(tx, refund.order.clientId, line);
+        const detail = await this.rollbackLine(tx, refund.order.clientId, line, freedGroupClassIds);
         await tx.refundLine.create({ data: { refundId: refund.id, orderLineId: line.id, detail } });
       }
       await tx.transaction.create({
@@ -209,6 +216,11 @@ export class RefundsService {
     });
 
     await this.activityLog.log(actor, 'Подтвердил возврат чеком', refund.order.client.name, `${refund.amount} ₽, чек fn=${receipt.fn}`);
+    // Возврат снял записи с групповых занятий — места освободились уже
+    // закоммиченными, теперь можно уведомить лист ожидания (P2.3).
+    for (const classId of new Set(freedGroupClassIds)) {
+      await this.schedule.promoteWaitlist(classId);
+    }
     return this.prisma.refund.findUnique({ where: { id: refund.id }, include: { lines: true, order: true } });
   }
 
