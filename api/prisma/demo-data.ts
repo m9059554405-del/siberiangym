@@ -216,6 +216,30 @@ async function main() {
   checkinRows.sort((a, b) => a.at.getTime() - b.at.getTime())
   await prisma.checkinEntry.createMany({ data: checkinRows })
 
+  // Шкафчики (P2.8): 24 штуки двумя банками (рядами) по 12, каждый ряд на
+  // своём контроллере (каналы 1-12). Точка в демо остаётся в ручном
+  // режиме (lockerMode=manual) — поля оборудования заполнены, чтобы
+  // переключение на centralized_kiosk не требовало правки данных.
+  const lockerRows: Array<{
+    gymId: string; number: number; status: 'FREE' | 'RENTED'; pricePerDay: number;
+    bankId: string; controllerId: string; channelNumber: number; doorState: 'OPEN' | 'CLOSED';
+    rentedBy?: string; rentedUntil?: Date;
+  }> = []
+  for (let i = 1; i <= 24; i++) {
+    const bank = i <= 12 ? 'A' : 'B'
+    lockerRows.push({
+      gymId: gym.id, number: i, status: 'FREE', pricePerDay: 100,
+      bankId: `bank-${bank}`, controllerId: `kr-${bank.toLowerCase()}-01`,
+      channelNumber: ((i - 1) % 12) + 1, doorState: 'CLOSED',
+    })
+  }
+  for (const ci of [4, 17]) {
+    lockerRows[ci].status = 'RENTED'
+    lockerRows[ci].rentedBy = clients[ci + 2].id
+    lockerRows[ci].rentedUntil = dayAt(ri(1, 5))
+  }
+  await prisma.locker.createMany({ data: lockerRows })
+
   const bookingPool = clients.filter((c) => c.format !== 'SELF')
   let classCounter = 0
   for (let offset = -35; offset <= 7; offset++) {
@@ -317,6 +341,7 @@ async function main() {
     personalSlots: await prisma.personalSlot.count({ where: { gymId: gym.id } }),
     workoutLogs: logs.length,
     leads: leadDefs.length,
+    lockers: lockerRows.length,
   }, null, 1))
 }
 

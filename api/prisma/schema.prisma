@@ -63,6 +63,12 @@ model Gym {
   // группировки, который сейчас есть.
   selfTrainingMinAge Int @default(18) @map("self_training_min_age")
 
+  // Режим управления шкафчиками (P2.8): manual — нынешняя аренда через
+  // заказ на кассе (0.4.0), centralized_kiosk — терминал-киоск со сканером
+  // QR назначает/возвращает шкафчики сам. Оборудование привязано к точке,
+  // не к сети (P1.8); большинство точек остаётся в manual.
+  lockerMode       LockerMode @default(manual) @map("locker_mode")
+
   users              User[]
   clients            Client[]
   trainers           Trainer[]
@@ -623,16 +629,39 @@ enum LockerStatus {
   RENTED
 }
 
+// P2.8: centralized_kiosk — на точке смонтирован терминал-киоск и
+// электронные замки с датчиком двери; manual — ручная аренда на кассе.
+enum LockerMode {
+  manual
+  centralized_kiosk
+}
+
+// Состояние дверцы по датчику замка (P2.8): обновляется колбэком от
+// контроллера; null — датчика нет/состояние неизвестно.
+enum LockerDoorState {
+  OPEN
+  CLOSED
+}
+
 model Locker {
-  id          String       @id @default(cuid())
-  gymId       String       @map("gym_id")
-  gym         Gym          @relation(fields: [gymId], references: [id])
+  id          String           @id @default(cuid())
+  gymId       String           @map("gym_id")
+  gym         Gym              @relation(fields: [gymId], references: [id])
   number      Int
-  status      LockerStatus @default(FREE)
-  rentedBy    String?      @map("rented_by")
-  client      Client?      @relation(fields: [rentedBy], references: [id])
-  rentedUntil DateTime?    @map("rented_until") @db.Date
-  pricePerDay Int          @map("price_per_day")
+  status      LockerStatus     @default(FREE)
+  rentedBy    String?          @map("rented_by")
+  client      Client?          @relation(fields: [rentedBy], references: [id])
+  rentedUntil DateTime?        @map("rented_until") @db.Date
+  pricePerDay Int              @map("price_per_day")
+  // Оборудование киоска (P2.8): банк (ряд) шкафчиков, сетевой контроллер
+  // ряда и номер релейного выхода на дверцу. Заполнены только на точках
+  // с централизованным управлением; null — обычный шкафчик под ручную
+  // аренду. assignedAt — момент назначения через киоск (rentedBy — кто).
+  bankId         String?          @map("bank_id")
+  controllerId   String?          @map("controller_id")
+  channelNumber  Int?             @map("channel_number")
+  doorState      LockerDoorState? @map("door_state")
+  assignedAt     DateTime?        @map("assigned_at")
 
   @@index([gymId])
   @@map("lockers")

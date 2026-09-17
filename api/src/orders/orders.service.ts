@@ -392,6 +392,9 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
       }
 
       case 'LOCKER_RENTAL': {
+        // P3.10: сериализуем захват строкой FOR UPDATE — параллельные
+        // подтверждения ручной аренды не займут шкафчик дважды.
+        await tx.$queryRaw`SELECT id FROM lockers WHERE id = ${line.refId!} FOR UPDATE`;
         const days = Number(meta.days);
         const locker = await tx.locker.findUniqueOrThrow({ where: { id: line.refId! } });
         if (locker.status !== 'FREE') {
