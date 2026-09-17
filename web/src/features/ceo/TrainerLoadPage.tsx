@@ -1,15 +1,67 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ChevronRight, Plus, UserPlus } from 'lucide-react'
+import { ChevronRight, Plus, ShieldPlus, UserPlus } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { useGroupClasses, usePersonalSlots, useTrainers } from '../../hooks/useClientApi'
 import { useAllClients } from '../../hooks/useStaffApi'
-import { useCreateTrainer, useCreateTrainerLogin } from '../../hooks/useCeoApi'
+import { useCreateStaff, useCreateTrainer, useCreateTrainerLogin } from '../../hooks/useCeoApi'
 import { getTrainerLoad } from '../../lib/ceoSelectors'
 import { Avatar } from '../../components/ui/Avatar'
 import { Badge, Button, Card, SectionTitle, StatTile } from '../../components/ui/Primitives'
 import { Modal } from '../../components/ui/Modal'
+import { ApiError } from '../../lib/api'
 import { getInitials } from '../../lib/format'
+
+// Инструмент CEO «Завести администратора» (P1.10) — в отличие от тренера,
+// у STAFF нет отдельной карточки-сущности, поэтому это один шаг, а не два.
+function AddStaffModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const createStaff = useCreateStaff()
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [done, setDone] = useState(false)
+
+  function reset() {
+    setName(''); setEmail(''); setPhone(''); setPassword(''); setError(null); setDone(false)
+  }
+
+  function submit() {
+    if (!name.trim() || !email.trim() || password.length < 8) return
+    setError(null)
+    createStaff.mutate(
+      { name: name.trim(), email: email.trim(), phone: phone.trim() || undefined, password },
+      { onSuccess: () => setDone(true), onError: (err) => setError(err instanceof ApiError ? err.message : 'Не удалось создать администратора') },
+    )
+  }
+
+  return (
+    <Modal open={open} onClose={() => { reset(); onClose() }} title="Новый администратор">
+      {done ? (
+        <div className="flex flex-col items-center gap-2 py-4 text-center">
+          <Badge tone="success">Администратор создан ✓</Badge>
+          <p className="text-sm text-[var(--text-muted)]">Логин и пароль можно передать сотруднику — доступ уже активен.</p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>}
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Имя Фамилия"
+            className="rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]" />
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email для входа"
+            className="rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]" />
+          <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Телефон (необязательно)"
+            className="rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm" />
+          <input type="text" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Временный пароль (мин. 8 символов)"
+            className="rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm" />
+          <Button onClick={submit} disabled={!name.trim() || !email.trim() || password.length < 8 || createStaff.isPending}>
+            <ShieldPlus size={14} /> Создать администратора
+          </Button>
+        </div>
+      )}
+    </Modal>
+  )
+}
 
 function AddTrainerModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const createTrainer = useCreateTrainer()
@@ -90,6 +142,7 @@ export function TrainerLoadPage() {
   const { data: groupClasses } = useGroupClasses()
   const { data: personalSlots } = usePersonalSlots()
   const [addOpen, setAddOpen] = useState(false)
+  const [addStaffOpen, setAddStaffOpen] = useState(false)
 
   if (!trainers || !clients || !groupClasses || !personalSlots) return null
 
@@ -104,11 +157,17 @@ export function TrainerLoadPage() {
           <h1 className="text-xl font-bold">Загрузка тренеров</h1>
           <p className="text-sm text-[var(--text-muted)]">Подопечные, занятость и сравнение нагрузки между тренерами</p>
         </div>
-        <Button size="sm" onClick={() => setAddOpen(true)}>
-          <Plus size={14} /> Новый тренер
-        </Button>
+        <div className="flex gap-2">
+          <Button size="sm" variant="secondary" onClick={() => setAddStaffOpen(true)}>
+            <ShieldPlus size={14} /> Новый администратор
+          </Button>
+          <Button size="sm" onClick={() => setAddOpen(true)}>
+            <Plus size={14} /> Новый тренер
+          </Button>
+        </div>
       </div>
       <AddTrainerModal open={addOpen} onClose={() => setAddOpen(false)} />
+      <AddStaffModal open={addStaffOpen} onClose={() => setAddStaffOpen(false)} />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatTile label="Тренеров" value={trainers.length} />

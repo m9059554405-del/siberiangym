@@ -1,8 +1,10 @@
-// Создаёт зал SiberianGym и первого CEO, чтобы был с чем войти в систему
-// сразу после установки. Остальные учётные записи (тренеры, администраторы)
-// CEO заводит сам через POST /api/auth/users после входа.
+// Создаёт сеть, зал SiberianGym и первого CEO, чтобы был с чем войти в
+// систему сразу после установки. Остальные учётные записи (тренеры,
+// администраторы) CEO заводит сам через приложение после входа
+// (администраторов — через POST /api/auth/staff, P1.10).
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { randomUUID } from 'crypto';
 import { EXERCISE_LIBRARY } from './exercise-library';
 
 const prisma = new PrismaClient();
@@ -11,18 +13,24 @@ const CEO_EMAIL = process.env.SEED_CEO_EMAIL ?? 'ceo@siberiangym.ru';
 const CEO_PASSWORD = process.env.SEED_CEO_PASSWORD ?? 'change-me-12345';
 
 async function main() {
-  const existing = await prisma.gym.findFirst({ where: { name: 'SiberianGym' } });
-  const gym = existing ?? (await prisma.gym.create({ data: { name: 'SiberianGym' } }));
-
-  const existingCeo = await prisma.user.findUnique({ where: { email: CEO_EMAIL } });
-  if (!existingCeo) {
+  let gym = await prisma.gym.findFirst({ where: { name: 'SiberianGym' } });
+  if (!gym) {
+    // Bootstrap на пустой БД (P1.1): Gym требует существующую Network,
+    // а обычно Network требовала бы существующего владельца-CEO, который,
+    // в свою очередь, требует существующий Gym — циклическая зависимость.
+    // Разрывается тем, что Network.ownerId не является внешним ключом на
+    // уровне БД (см. комментарий в schema.prisma) — id будущего CEO можно
+    // указать заранее, до того как сам User реально создан.
+    const ceoId = randomUUID();
+    const network = await prisma.network.create({ data: { ownerId: ceoId, name: 'SiberianGym' } });
+    gym = await prisma.gym.create({ data: { networkId: network.id, name: 'SiberianGym' } });
     const passwordHash = await bcrypt.hash(CEO_PASSWORD, 12);
     await prisma.user.create({
-      data: { gymId: gym.id, email: CEO_EMAIL, passwordHash, role: 'CEO' },
+      data: { id: ceoId, gymId: gym.id, email: CEO_EMAIL, passwordHash, role: 'CEO' },
     });
-    console.log(`Создан CEO: ${CEO_EMAIL} / ${CEO_PASSWORD} — смените пароль после первого входа.`);
+    console.log(`Создана сеть, зал и CEO: ${CEO_EMAIL} / ${CEO_PASSWORD} — смените пароль после первого входа.`);
   } else {
-    console.log(`CEO ${CEO_EMAIL} уже существует, пропускаю.`);
+    console.log(`Зал SiberianGym уже существует, пропускаю создание сети/зала/CEO.`);
   }
 
   const existingPricing = await prisma.membershipPricing.findUnique({ where: { gymId: gym.id } });

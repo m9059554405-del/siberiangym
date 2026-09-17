@@ -90,6 +90,16 @@ export function useDeleteReportOffer() {
   })
 }
 
+// Инструмент CEO «Завести администратора» (P1.10) — заводится сразу в
+// активную (по токену) точку сети, ролью STAFF, без второго шага
+// (в отличие от тренера, у STAFF нет отдельной карточки-сущности).
+export function useCreateStaff() {
+  return useMutation({
+    mutationFn: (dto: { name: string; email: string; password: string; phone?: string }) =>
+      api.post<{ id: string; email: string; name: string | null }>('/auth/staff', dto),
+  })
+}
+
 export function useCreateTrainer() {
   const qc = useQueryClient()
   return useMutation({

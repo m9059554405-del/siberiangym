@@ -1,7 +1,7 @@
 import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
-import { CreateUserDto } from './dto/create-user.dto';
+import { CreateStaffDto } from './dto/create-staff.dto';
 import { SwitchGymDto } from './dto/switch-gym.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
@@ -27,12 +27,13 @@ export class AuthController {
     return this.auth.switchGym(actor, dto.gymId);
   }
 
-  // Заводить новые учётные записи (тренер/администратор/CEO) может только CEO.
-  // Клиентские карточки создаются через модуль clients, с логином не связаны напрямую.
+  // Инструмент CEO «Завести администратора» (P1.10) — заводится сразу в
+  // ту точку сети, в которой сейчас активен токен CEO. Клиентские карточки
+  // и тренеры заводятся через свои профильные модули, не здесь.
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.CEO)
-  @Post('users')
-  createUser(@Body() dto: CreateUserDto, @CurrentUser() actor: JwtPayload) {
-    return this.auth.createUser(actor.gymId, dto.email, dto.password, dto.role, dto.phone);
+  @Post('staff')
+  createStaff(@Body() dto: CreateStaffDto, @CurrentUser() actor: JwtPayload) {
+    return this.auth.createStaff(actor, dto);
   }
 }

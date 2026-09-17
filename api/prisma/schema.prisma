@@ -24,9 +24,18 @@ datasource db {
 // отдельно фиксирует множественность CEO/совладельцев как нерешённый
 // вопрос, не смешивается с этим пунктом.
 model Network {
-  id        String   @id @default(cuid())
+  id String @id @default(cuid())
+  // Намеренно БЕЗ @relation на User (нет внешнего ключа на уровне БД) —
+  // единственный способ разорвать циклическую зависимость при бутстрапе
+  // первой установки: Gym требует существующую Network, Network в обычном
+  // варианте требовала бы существующего владельца-User, а User требует
+  // существующий Gym. Целостность на уровне приложения обеспечивают все
+  // сетевые эндпоинты (resolveOwnedNetworkId и др.), которые всё равно
+  // явно проверяют владельца при каждом обращении, а не полагаются на
+  // FK. Реального риска осиротевшей ссылки нет — в системе пока не
+  // существует способа удалить User целиком (P3.9 — деактивация, не
+  // удаление).
   ownerId   String   @unique @map("owner_id")
-  owner     User     @relation(fields: [ownerId], references: [id])
   name      String
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -102,6 +111,12 @@ model User {
   gym          Gym      @relation(fields: [gymId], references: [id])
   email        String?  @unique
   phone        String?  @unique
+  // ФИО — заполняется только у STAFF, заведённых через инструмент CEO
+  // (P1.10): у CLIENT/TRAINER своё имя уже есть на их собственной карточке
+  // (Client.name/Trainer.name), дублировать его здесь не нужно; у CEO
+  // (единственная сегодня учётная запись без карточки, заводится
+  // seed-скриптом) может оставаться пустым.
+  name         String?
   passwordHash String   @map("password_hash")
   role         Role
   isActive     Boolean  @default(true) @map("is_active")
@@ -110,11 +125,6 @@ model User {
 
   clientProfile  Client?
   trainerProfile Trainer?
-  // Обратная связь на Network.owner (P1.1) — заполнена только у CEO,
-  // который реально владеет сетью; необязательная, т.к. не у каждого
-  // User есть своя сеть (Prisma требует обратное поле для однозначной
-  // связи 1:1, даже когда оно nullable на этой стороне).
-  ownedNetwork Network?
 
   @@index([gymId])
   @@map("users")

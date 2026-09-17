@@ -66,13 +66,26 @@ export class AuthService {
     };
   }
 
-  async createUser(gymId: string, email: string, password: string, role: Role, phone?: string) {
+  async createUser(gymId: string, email: string, password: string, role: Role, phone?: string, name?: string) {
     const passwordHash = await this.hashPassword(password);
     // select без passwordHash — хэш пароля никогда не должен уходить в ответ API,
     // даже в захешированном виде.
     return this.prisma.user.create({
-      data: { gymId, email, phone, passwordHash, role },
-      select: { id: true, gymId: true, email: true, phone: true, role: true, isActive: true, createdAt: true },
+      data: { gymId, email, phone, name, passwordHash, role },
+      select: { id: true, gymId: true, email: true, phone: true, name: true, role: true, isActive: true, createdAt: true },
     });
+  }
+
+  // Инструмент CEO «Завести администратора» (P1.10) — заводит STAFF сразу
+  // с логином, одним действием (в отличие от тренера, у STAFF нет
+  // отдельной карточки-сущности, которую нужно было бы создавать вторым
+  // шагом). Роль всегда STAFF — сознательно не принимает role параметром:
+  // CLIENT/TRAINER заводятся через свои профильные флоу (clients/trainers,
+  // с собственной бизнес-карточкой), а создание ещё одного CEO через этот
+  // инструмент не имеет смысла при текущей модели Network.ownerId (P1.1) —
+  // новый CEO-пользователь не будет владеть никакой сетью и не сможет
+  // пройти resolveOwnedNetworkId ни в одном сетевом эндпоинте.
+  async createStaff(actor: JwtPayload, dto: { name: string; email: string; password: string; phone?: string }) {
+    return this.createUser(actor.gymId, dto.email, dto.password, Role.STAFF, dto.phone, dto.name);
   }
 }

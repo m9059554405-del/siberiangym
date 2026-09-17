@@ -18,7 +18,11 @@ export class ActivityLogService {
       const t = await this.prisma.trainer.findUnique({ where: { userId: actor.sub } });
       return t?.name ?? 'Тренер';
     }
-    return actor.role === 'STAFF' ? 'Администратор' : 'CEO';
+    if (actor.role === 'STAFF') {
+      const u = await this.prisma.user.findUnique({ where: { id: actor.sub }, select: { name: true } });
+      return u?.name ?? 'Администратор';
+    }
+    return 'CEO';
   }
 
   async log(actor: JwtPayload, action: string, target: string, details: string) {
