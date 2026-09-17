@@ -11,6 +11,7 @@ import { TrainersService } from '../trainers/trainers.service';
 import { GymsService } from '../gyms/gyms.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { startOfDay } from '../clients/membership.const';
+import { LATE_CANCEL_WINDOW_HOURS, hoursBefore, startsAt } from './schedule.const';
 
 // Резолвит clientId для self-service действий: клиент может действовать
 // только от своего имени, CEO/STAFF должны явно передать clientId.
@@ -74,6 +75,12 @@ export class ScheduleService {
 
   async cancelGroupClassBooking(actor: JwtPayload, classId: string, explicitClientId?: string) {
     const clientId = await resolveClientId(this.prisma, actor, explicitClientId);
+    const gc = await this.prisma.groupClass.findUnique({ where: { id: classId } });
+    // Групповое занятие не блокируем поздней отменой (P2.5): место всё
+    // равно освободится физически и его подберёт лист ожидания (P2.3) —
+    // но отмечаем в журнале, поздно ли отменил клиент (для разбора
+    // спорных возвратов).
+    const late = !!gc && hoursBefore(startsAt(gc.date, gc.start)) < LATE_CANCEL_WINDOW_HOURS.GROUP;
     const deleted = await this.prisma.groupClassBooking.deleteMany({ where: { groupClassId: classId, clientId } });
     if (deleted.count > 0) {
       // Место освободилось — первый в листе ожидания получает уведомление
@@ -81,7 +88,7 @@ export class ScheduleService {
       // должно отправиться, если сама отмена по какой-то причине откатится.
       await this.promoteWaitlist(classId);
     }
-    await this.activityLog.log(actor, 'Отменил запись на групповое занятие', clientId, classId);
+    await this.activityLog.log(actor, 'Отменил запись на групповое занятие', clientId, `${classId}${late ? ` (поздняя отмена, менее ${LATE_CANCEL_WINDOW_HOURS.GROUP} ч до начала)` : ''}`);
     return { ok: true };
   }
 
@@ -185,6 +192,15 @@ export class ScheduleService {
     if (actor.role === 'CLIENT') {
       const client = await this.prisma.client.findUnique({ where: { userId: actor.sub } });
       if (!client || slot.clientId !== client.id) throw new ForbiddenException('Это не ваша запись');
+      // Поздняя отмена (P2.5): персональная тренировка платная, и отказ
+      // за считанные часы — это потерянное время тренера, которое уже не
+      // продать. Клиенту — только через администратора (форс-мажор решает
+      // персонал), персонал отменяет без ограничений.
+      if (slot.status === 'BOOKED' && hoursBefore(startsAt(slot.date, slot.start)) < LATE_CANCEL_WINDOW_HOURS.PERSONAL) {
+        throw new BadRequestException(
+          `До тренировки меньше ${LATE_CANCEL_WINDOW_HOURS.PERSONAL} ч — поздняя отмена недоступна в приложении, свяжитесь с администратором клуба`,
+        );
+      }
     }
     await this.prisma.personalSlot.update({ where: { id: slotId }, data: { status: 'FREE', clientId: null } });
     // Отмена забронированного слота — «критичное» напоминание из P2.4:

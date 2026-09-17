@@ -5,6 +5,7 @@ import { ActivityLogService } from '../activity-log/activity-log.service';
 import { MEMBERSHIP_LABEL } from '../clients/membership.const';
 import { amountsMatchToKopeck, parseFiscalReceiptQr } from '../orders/receipt-qr.util';
 import { ScheduleService } from '../schedule/schedule.service';
+import { startsAt } from '../schedule/schedule.const';
 import type { JwtPayload } from '../auth/auth.service';
 
 // Возврат оплаты (P0.7) — по 54-ФЗ отмена платежа не "удалить транзакцию из
@@ -30,7 +31,7 @@ export class RefundsService {
   }
 
   async requestRefund(actor: JwtPayload, orderId: string, reason: string) {
-    const order = await this.prisma.order.findFirst({ where: { id: orderId, gymId: actor.gymId }, include: { client: true } });
+    const order = await this.prisma.order.findFirst({ where: { id: orderId, gymId: actor.gymId }, include: { client: true, lines: true } });
     if (!order) throw new NotFoundException('Заказ не найден');
     if (order.status !== 'PAID') throw new BadRequestException('Возврат можно оформить только по оплаченному заказу');
 
@@ -39,6 +40,13 @@ export class RefundsService {
       throw new BadRequestException(
         active.status === 'CONFIRMED' ? 'По этому заказу уже оформлен возврат' : 'По этому заказу уже есть незакрытый запрос на возврат',
       );
+    }
+
+    // Политика no-show (P2.5): неявку и проведённое занятие возвращать
+    // нельзя — отказываем сразу, на создании запроса, чтобы не гонять
+    // администратора к кассе за заведомо невозможным возвратом.
+    for (const line of order.lines) {
+      await this.assertBookingRefundable(line);
     }
 
     const refund = await this.prisma.refund.create({
@@ -55,6 +63,27 @@ export class RefundsService {
     const updated = await this.prisma.refund.update({ where: { id: refundId }, data: { status: 'CANCELLED', cancelledAt: new Date() } });
     await this.activityLog.log(actor, 'Отменил запрос на возврат', refund.order.client.name, `${refund.amount} ₽`);
     return updated;
+  }
+
+  // Политика no-show (P2.5): позиции-брони возвращаются только пока услуга
+  // ещё не оказана. Неявка на персональную тренировку (PAST_MISSED) —
+  // деньги уходят тренеру; проведённое занятие/тренировка — услуга оказана.
+  private async assertBookingRefundable(line: { type: OrderLineType; refId: string | null; meta: Prisma.JsonValue }) {
+    if (line.type === 'PERSONAL_SLOT_BOOKING' && line.refId) {
+      const slot = await this.prisma.personalSlot.findUnique({ where: { id: line.refId } });
+      if (slot?.status === 'PAST_MISSED') {
+        throw new BadRequestException('Возврат недоступен: зафиксирована неявка на персональную тренировку — деньги уходят тренеру (политика клуба)');
+      }
+      if (slot?.status === 'PAST_COMPLETED') {
+        throw new BadRequestException('Возврат недоступен: персональная тренировка уже проведена');
+      }
+    }
+    if (line.type === 'GROUP_CLASS_BOOKING' && line.refId) {
+      const gc = await this.prisma.groupClass.findUnique({ where: { id: line.refId } });
+      if (gc && startsAt(gc.date, gc.start).getTime() <= Date.now()) {
+        throw new BadRequestException('Возврат недоступен: групповое занятие уже началось или прошло');
+      }
+    }
   }
 
   // Откатывает ОДНУ позицию исходного заказа. Возвращает человекочитаемое
@@ -127,12 +156,17 @@ export class RefundsService {
       }
 
       case 'GROUP_CLASS_BOOKING': {
+        // Гонка no-show (P2.5): занятие могли провести (или отметить неявку)
+        // уже после создания запроса на возврат — тогда чек возврата
+        // сканировать нельзя, вся транзакция отклоняется целиком.
+        await this.assertBookingRefundable({ type: 'GROUP_CLASS_BOOKING', refId: line.refId, meta: line.meta });
         const deleted = await tx.groupClassBooking.deleteMany({ where: { groupClassId: line.refId!, clientId } });
         if (deleted.count > 0) freedGroupClassIds.push(line.refId!);
         return deleted.count > 0 ? 'Запись на групповое занятие снята' : 'Запись уже была отменена клиентом ранее';
       }
 
       case 'PERSONAL_SLOT_BOOKING': {
+        await this.assertBookingRefundable({ type: 'PERSONAL_SLOT_BOOKING', refId: line.refId, meta: line.meta });
         const slot = await tx.personalSlot.findUnique({ where: { id: line.refId! } });
         if (slot && slot.clientId === clientId && slot.status === 'BOOKED') {
           await tx.personalSlot.update({ where: { id: slot.id }, data: { status: 'FREE', clientId: null } });

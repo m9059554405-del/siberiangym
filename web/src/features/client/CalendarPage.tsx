@@ -251,6 +251,9 @@ export function CalendarPage() {
               {personalSlotsView.length === 0 && <EmptyState title="Нет доступных слотов на ближайшее время" />}
               {personalSlotsView.map((slot) => {
                 const isMine = slot.clientId === client.id
+                // Зеркало api/src/schedule/schedule.const.ts (LATE_CANCEL_WINDOW_HOURS.PERSONAL):
+                // поздняя отмена в приложении закрыта — только через администратора.
+                const lateCancel = isMine && new Date(`${slot.date.slice(0, 10)}T${slot.start}:00`).getTime() - Date.now() < 12 * 3_600_000
                 return (
                   <Card key={slot.id} className="flex items-center justify-between gap-3">
                     <div>
@@ -259,15 +262,23 @@ export function CalendarPage() {
                         <span className="text-sm text-[var(--text-muted)]">{slot.start}–{slot.end}</span>
                         {isMine && <Badge tone="success">Ваша запись</Badge>}
                       </div>
-                      <div className="text-xs text-[var(--text-faint)]">{formatMoney(trainer.personalSessionPrice)} ₽</div>
+                      <div className="text-xs text-[var(--text-faint)]">
+                        {formatMoney(trainer.personalSessionPrice)} ₽{lateCancel ? ' · до начала менее 12 ч — отмена только через администратора' : ''}
+                      </div>
                     </div>
-                    <Button
-                      size="sm"
-                      variant={isMine ? 'danger' : 'primary'}
-                      onClick={() => (isMine ? cancelPersonalSlot.mutate(slot.id) : bookPersonalSlot(slot.id))}
-                    >
-                      {isMine ? 'Отменить' : 'Записаться'}
-                    </Button>
+                    {lateCancel ? (
+                      <Button size="sm" variant="danger" disabled title="Поздняя отмена — свяжитесь с администратором">
+                        Отмена закрыта
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant={isMine ? 'danger' : 'primary'}
+                        onClick={() => (isMine ? cancelPersonalSlot.mutate(slot.id) : bookPersonalSlot(slot.id))}
+                      >
+                        {isMine ? 'Отменить' : 'Записаться'}
+                      </Button>
+                    )}
                   </Card>
                 )
               })}
