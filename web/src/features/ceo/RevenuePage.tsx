@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { useTrainers } from '../../hooks/useClientApi'
 import { useTransactions } from '../../hooks/useCeoApi'
-import { getRevenueByDay, getRevenueByMonth, getTopTrainersByRevenue, getTotalRevenue } from '../../lib/ceoSelectors'
+import { NetworkGymFilter } from './NetworkGymFilter'
+import { getRevenueByDay, getRevenueByGym, getRevenueByMonth, getTopTrainersByRevenue, getTotalRevenue } from '../../lib/ceoSelectors'
 import { Avatar } from '../../components/ui/Avatar'
 import { Card, SectionTitle, StatTile, Tabs } from '../../components/ui/Primitives'
 import { getInitials } from '../../lib/format'
@@ -21,13 +21,16 @@ function fmt(n: number) {
 
 export function RevenuePage() {
   const { data: transactions } = useTransactions()
-  const { data: trainers } = useTrainers()
   const [granularity, setGranularity] = useState<'day' | 'month'>('day')
+  const [gym, setGym] = useState('')
 
-  const tx = transactions ?? []
+  // Фид уже отдаёт всю сеть (P1.7) — фильтр по точке считается на клиенте,
+  // без перезагрузки данных.
+  const tx = useMemo(() => (transactions ?? []).filter((t) => !gym || t.gymId === gym), [transactions, gym])
   const byDay = useMemo(() => getRevenueByDay(tx, 30), [tx])
   const byMonth = useMemo(() => getRevenueByMonth(tx), [tx])
-  const topTrainers = useMemo(() => getTopTrainersByRevenue(trainers ?? [], [], tx), [trainers, tx])
+  const byGym = useMemo(() => getRevenueByGym(transactions ?? []), [transactions])
+  const topTrainers = useMemo(() => getTopTrainersByRevenue(tx), [tx])
   const total = getTotalRevenue(tx)
 
   const points = granularity === 'day' ? byDay : byMonth
@@ -40,9 +43,12 @@ export function RevenuePage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div>
-        <h1 className="text-xl font-bold">Выручка</h1>
-        <p className="text-sm text-[var(--text-muted)]">По дням, по месяцам и по источникам дохода</p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h1 className="text-xl font-bold">Выручка</h1>
+          <p className="text-sm text-[var(--text-muted)]">По всей сети, по дням, по месяцам и по источникам дохода</p>
+        </div>
+        <NetworkGymFilter value={gym} onChange={setGym} />
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -96,12 +102,11 @@ export function RevenuePage() {
           <SectionTitle title="Топ тренеров по выручке" />
           <div className="flex flex-col gap-2.5">
             {topTrainers.map((t, idx) => {
-              const trainer = (trainers ?? []).find((tr) => tr.id === t.trainerId)
               const max = topTrainers[0]?.revenue || 1
               return (
                 <div key={t.trainerId} className="flex items-center gap-3">
                   <span className="w-4 text-xs font-semibold text-[var(--text-faint)]">{idx + 1}</span>
-                  {trainer && <Avatar initials={getInitials(trainer.name)} hue={trainer.avatarHue} size={30} />}
+                  {t.avatarHue !== undefined && <Avatar initials={getInitials(t.name)} hue={t.avatarHue} size={30} />}
                   <div className="flex-1">
                     <div className="flex items-center justify-between text-sm">
                       <span className="font-medium">{t.name}</span>
@@ -117,6 +122,30 @@ export function RevenuePage() {
           </div>
         </Card>
       </div>
+
+      {gym === '' && byGym.length > 1 && (
+        <Card>
+          <SectionTitle title="Выручка по точкам" subtitle="Вся сеть одной сводкой, без переключения точки" />
+          <div className="flex flex-col gap-2.5">
+            {byGym.map((g) => {
+              const max = byGym[0]?.total || 1
+              return (
+                <div key={g.gymId} className="flex items-center gap-3">
+                  <div className="min-w-[120px] flex-1">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="font-medium">{g.name}</span>
+                      <span className="text-[var(--text-muted)]">{fmt(g.total)}</span>
+                    </div>
+                    <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-[var(--surface-sunken)]">
+                      <div className="h-full rounded-full bg-[var(--ceo-accent)]" style={{ width: `${(g.total / max) * 100}%` }} />
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </Card>
+      )}
     </div>
   )
 }

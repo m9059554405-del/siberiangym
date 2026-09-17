@@ -88,14 +88,34 @@ export class ClientsService {
     return { ...client, isMinor: computeIsMinor(client.birthday, minAge) };
   }
 
-  async findAll(gymId: string) {
+  // ?network=1 (P1.7) — вся сеть, но только для CEO: отчёту «занятость
+  // тренеров» нужны подопечные из всех точек, ведь клиенты тренера живут
+  // в разных залах. STAFF всегда видит строго свою точку, а поштучные
+  // действия (update, go-self-training, create-login) остаются
+  // gym-scoped — сетевой список только для чтения. Порог
+  // самостоятельных тренировок у каждой точки свой, поэтому isMinor
+  // считается по точке каждого клиента.
+  async findAll(actor: JwtPayload, network = false) {
+    if (network && actor.role === 'CEO') {
+      const gyms = await this.prisma.gym.findMany({
+        where: { networkId: await this.gyms.resolveNetworkId(actor) },
+        select: { id: true, selfTrainingMinAge: true },
+      });
+      const minAgeByGym = new Map(gyms.map((g) => [g.id, g.selfTrainingMinAge]));
+      const clients = await this.prisma.client.findMany({
+        where: { gymId: { in: gyms.map((g) => g.id) } },
+        include: { membership: true, trainer: true, formatHistory: true },
+        orderBy: { createdAt: 'desc' },
+      });
+      return clients.map((c) => this.attachIsMinor(c, minAgeByGym.get(c.gymId) ?? 18));
+    }
     const [clients, minAge] = await Promise.all([
       this.prisma.client.findMany({
-        where: { gymId },
+        where: { gymId: actor.gymId },
         include: { membership: true, trainer: true, formatHistory: true },
         orderBy: { createdAt: 'desc' },
       }),
-      this.getSelfTrainingMinAge(gymId),
+      this.getSelfTrainingMinAge(actor.gymId),
     ]);
     return clients.map((c) => this.attachIsMinor(c, minAge));
   }

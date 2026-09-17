@@ -16,6 +16,6 @@ export class TransactionsController {
 
   @Get()
   findAll(@CurrentUser() user: JwtPayload) {
-    return this.transactions.findAll(user.gymId);
+    return this.transactions.findAll(user);
   }
 }

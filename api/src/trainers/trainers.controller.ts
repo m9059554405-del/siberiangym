@@ -17,7 +17,7 @@ export class TrainersController {
   // Список тренеров нужен всем ролям (клиент выбирает тренера, тренер видит коллег и т.д.)
   @Get()
   findAll(@CurrentUser() user: JwtPayload) {
-    return this.trainers.findAll(user.gymId);
+    return this.trainers.findAll(user);
   }
 
   @Roles(Role.TRAINER)
@@ -34,7 +34,7 @@ export class TrainersController {
 
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
-    return this.trainers.findOne(user.gymId, id);
+    return this.trainers.findOne(user, id);
   }
 
   @Roles(Role.CEO, Role.STAFF)

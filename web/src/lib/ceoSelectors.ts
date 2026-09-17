@@ -131,19 +131,40 @@ export function getRevenueByMonth(transactions: TxLike[]): RevenuePoint[] {
 export interface TrainerRevenueRow {
   trainerId: string
   name: string
+  avatarHue?: number
   revenue: number
-  clients: number
 }
 
-export function getTopTrainersByRevenue(trainers: Trainer[], clients: Client[], transactions: { trainerId?: string | null; amount: number }[]): TrainerRevenueRow[] {
-  const revenueMap = new Map<string, number>()
+// Топ тренеров по выручке — имя и аватар берутся из самих транзакций
+// (тренер приложен к строке), поэтому корректно работает и по всей сети
+// (P1.7), где список тренеров одной точки ничего не знает о чужих.
+export function getTopTrainersByRevenue(transactions: { trainerId?: string | null; amount: number; trainer?: { name: string; avatarHue: number } | null }[]): TrainerRevenueRow[] {
+  const map = new Map<string, TrainerRevenueRow>()
   for (const tx of transactions) {
     if (!tx.trainerId) continue
-    revenueMap.set(tx.trainerId, (revenueMap.get(tx.trainerId) ?? 0) + tx.amount)
+    const row = map.get(tx.trainerId) ?? { trainerId: tx.trainerId, name: tx.trainer?.name ?? tx.trainerId, avatarHue: tx.trainer?.avatarHue, revenue: 0 }
+    row.revenue += tx.amount
+    map.set(tx.trainerId, row)
   }
-  return trainers
-    .map((t) => ({ trainerId: t.id, name: t.name, revenue: revenueMap.get(t.id) ?? 0, clients: clients.filter((c) => c.trainerId === t.id).length }))
-    .sort((a, b) => b.revenue - a.revenue)
+  return [...map.values()].sort((a, b) => b.revenue - a.revenue)
+}
+
+export interface GymRevenueRow {
+  gymId: string
+  name: string
+  total: number
+}
+
+// Разбивка выручки по точкам сети (P1.7) — вся сеть одной сводкой,
+// без раздельного захода в каждую точку.
+export function getRevenueByGym(transactions: { gymId: string; gym?: { id: string; name: string } | null; amount: number }[]): GymRevenueRow[] {
+  const map = new Map<string, GymRevenueRow>()
+  for (const t of transactions) {
+    const row = map.get(t.gymId) ?? { gymId: t.gymId, name: t.gym?.name ?? t.gymId, total: 0 }
+    row.total += t.amount
+    map.set(t.gymId, row)
+  }
+  return [...map.values()].sort((a, b) => b.total - a.total)
 }
 
 export function getClientBaseBreakdown(clients: Client[]) {

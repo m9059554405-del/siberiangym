@@ -153,6 +153,7 @@ export type EmploymentType = 'EMPLOYEE' | 'SELF_EMPLOYED' | 'SOLE_PROPRIETOR'
 
 export interface Trainer {
   id: string
+  gymId?: string
   name: string
   avatarHue: number
   specialization: string
@@ -166,6 +167,9 @@ export interface Trainer {
   competitionPhotos: TrainerCompetitionPhoto[]
   employmentType: EmploymentType | null
   revenueSharePercent: number | null
+  // Только из списка /trainers (P1.7): нужен CEO-фильтру «тренер работает
+  // на выбранной точке» — домашняя ИЛИ дополнительная.
+  additionalGyms?: { gymId: string }[]
 }
 
 export type MembershipScope = 'SINGLE_GYM' | 'NETWORK'
@@ -192,6 +196,7 @@ export interface ClientFormatHistoryEntry {
 
 export interface Client {
   id: string
+  gymId?: string
   name: string
   gender: Gender
   avatarHue: number
@@ -266,6 +271,9 @@ export interface WorkoutLogEntry {
   dayLabel: string
   status: WorkoutStatus
   exercises: WorkoutExerciseLog[]
+  // Есть в CEO-фиде /workout-logs (P1.7): gymId клиента — основа фильтра
+  // посещаемости по точке сети.
+  client?: { id: string; name: string; avatarHue: number; gymId: string } | null
 }
 
 export interface GroupClassBooking {
@@ -274,6 +282,7 @@ export interface GroupClassBooking {
 }
 export interface GroupClass {
   id: string
+  gymId: string
   type: string
   trainerId: string
   trainer?: Trainer
@@ -287,6 +296,7 @@ export interface GroupClass {
 
 export interface PersonalSlot {
   id: string
+  gymId: string
   trainerId: string
   trainer?: Trainer
   date: string

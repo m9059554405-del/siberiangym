@@ -35,6 +35,16 @@ export class GymsService {
     return network.id;
   }
 
+  // Все точки сети, к которой относится текущая точка actor.gymId (P1.7) —
+  // источник сетевого охвата для CEO-отчётов (выручка/посещаемость/
+  // занятость тренеров). Роль проверяют вызывающие: сводка по сети —
+  // только CEO, STAFF остаётся строго в рамках своей точки (P1.6).
+  async resolveNetworkGymIds(actor: JwtPayload): Promise<string[]> {
+    const networkId = await this.resolveNetworkId(actor);
+    const gyms = await this.prisma.gym.findMany({ where: { networkId }, select: { id: true } });
+    return gyms.map((g) => g.id);
+  }
+
   async listForNetwork(actor: JwtPayload) {
     const networkId = await this.resolveOwnedNetworkId(actor);
     return this.prisma.gym.findMany({ where: { networkId }, orderBy: { createdAt: 'asc' } });

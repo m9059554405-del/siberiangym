@@ -2,17 +2,30 @@ import { useMemo, useState } from 'react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { useGroupClasses, usePersonalSlots, useTrainers } from '../../hooks/useClientApi'
 import { useAllWorkoutLogs } from '../../hooks/useCeoApi'
+import { NetworkGymFilter } from './NetworkGymFilter'
 import { getAttendanceByDay, getTrainerHourlyOccupancy, getVisitTimeDistribution } from '../../lib/ceoSelectors'
 import { Card, SectionTitle, StatTile, Tabs } from '../../components/ui/Primitives'
 
 export function AttendancePage() {
-  const { data: logs } = useAllWorkoutLogs()
+  const { data: allLogs } = useAllWorkoutLogs()
   const { data: trainers } = useTrainers()
   const { data: groupClasses } = useGroupClasses()
   const { data: personalSlots } = usePersonalSlots()
   const [range, setRange] = useState<'30' | '60' | '90'>('30')
+  const [gym, setGym] = useState('')
 
-  const points = useMemo(() => getAttendanceByDay(logs ?? [], Number(range)), [logs, range])
+  // Фиды CEO уже отдают всю сеть (P1.7); фильтр по точке — на клиенте.
+  // Тренер попадает под фильтр, если работает на точке: домашняя ИЛИ
+  // дополнительная (additionalGyms).
+  const logs = useMemo(() => (allLogs ?? []).filter((l) => !gym || l.client?.gymId === gym), [allLogs, gym])
+  const fTrainers = useMemo(
+    () => (trainers ?? []).filter((t) => !gym || t.gymId === gym || t.additionalGyms?.some((a) => a.gymId === gym)),
+    [trainers, gym],
+  )
+  const fClasses = useMemo(() => (groupClasses ?? []).filter((c) => !gym || c.gymId === gym), [groupClasses, gym])
+  const fSlots = useMemo(() => (personalSlots ?? []).filter((s) => !gym || s.gymId === gym), [personalSlots, gym])
+
+  const points = useMemo(() => getAttendanceByDay(logs, Number(range)), [logs, range])
 
   const weeklyPoints = useMemo(() => {
     const map = new Map<string, number>()
@@ -30,15 +43,18 @@ export function AttendancePage() {
   const avgPerDay = points.length ? Math.round(total / points.length) : 0
   const peak = points.reduce((max, p) => (p.visits > max.visits ? p : max), points[0] ?? { date: '', visits: 0 })
 
-  const hourPoints = useMemo(() => getVisitTimeDistribution(groupClasses ?? [], personalSlots ?? []), [groupClasses, personalSlots])
-  const occupancy = useMemo(() => getTrainerHourlyOccupancy(trainers ?? [], groupClasses ?? [], personalSlots ?? []), [trainers, groupClasses, personalSlots])
+  const hourPoints = useMemo(() => getVisitTimeDistribution(fClasses, fSlots), [fClasses, fSlots])
+  const occupancy = useMemo(() => getTrainerHourlyOccupancy(fTrainers, fClasses, fSlots), [fTrainers, fClasses, fSlots])
   const maxOccupancy = Math.max(1, ...occupancy.rows.flatMap((r) => r.counts))
 
   return (
     <div className="flex flex-col gap-5">
-      <div>
-        <h1 className="text-xl font-bold">Посещаемость</h1>
-        <p className="text-sm text-[var(--text-muted)]">Сколько людей ходит в клуб по дням и неделям</p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h1 className="text-xl font-bold">Посещаемость</h1>
+          <p className="text-sm text-[var(--text-muted)]">Сколько людей ходит в клуб по дням и неделям</p>
+        </div>
+        <NetworkGymFilter value={gym} onChange={setGym} />
       </div>
 
       <div className="grid grid-cols-3 gap-3">

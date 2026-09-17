@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronRight, Plus, ShieldPlus } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
@@ -8,6 +8,7 @@ import { useCreateStaff, useCreateTrainer, type CreateTrainerPayload } from '../
 import { useNetworkGyms } from '../../hooks/useGymsApi'
 import { useAuthStore } from '../../store/useAuthStore'
 import { getTrainerLoad } from '../../lib/ceoSelectors'
+import { NetworkGymFilter } from './NetworkGymFilter'
 import { Avatar } from '../../components/ui/Avatar'
 import { Badge, Button, Card, SectionTitle, StatTile } from '../../components/ui/Primitives'
 import { Modal } from '../../components/ui/Modal'
@@ -198,14 +199,26 @@ function AddTrainerModal({ open, onClose }: { open: boolean; onClose: () => void
 }
 
 export function TrainerLoadPage() {
-  const { data: trainers } = useTrainers()
-  const { data: clients } = useAllClients()
-  const { data: groupClasses } = useGroupClasses()
-  const { data: personalSlots } = usePersonalSlots()
+  // Страница CEO-only: подопечные нужны по всей сети (P1.7), ведь клиенты
+  // тренера живут в разных точках.
+  const { data: allTrainers } = useTrainers()
+  const { data: allClients } = useAllClients(true)
+  const { data: allClasses } = useGroupClasses()
+  const { data: allSlots } = usePersonalSlots()
   const [addOpen, setAddOpen] = useState(false)
   const [addStaffOpen, setAddStaffOpen] = useState(false)
+  const [gym, setGym] = useState('')
 
-  if (!trainers || !clients || !groupClasses || !personalSlots) return null
+  // Фиды уже отдают всю сеть (P1.7) — фильтр по точке считается на клиенте.
+  const trainers = useMemo(
+    () => (allTrainers ?? []).filter((t) => !gym || t.gymId === gym || t.additionalGyms?.some((a) => a.gymId === gym)),
+    [allTrainers, gym],
+  )
+  const clients = useMemo(() => (allClients ?? []).filter((c) => !gym || c.gymId === gym), [allClients, gym])
+  const groupClasses = useMemo(() => (allClasses ?? []).filter((c) => !gym || c.gymId === gym), [allClasses, gym])
+  const personalSlots = useMemo(() => (allSlots ?? []).filter((s) => !gym || s.gymId === gym), [allSlots, gym])
+
+  if (!allTrainers || !allClients || !allClasses || !allSlots) return null
 
   const rows = getTrainerLoad(trainers, clients, groupClasses, personalSlots)
   const totalClasses7d = rows.reduce((s, r) => s + r.classesNext7Days, 0)
@@ -218,7 +231,8 @@ export function TrainerLoadPage() {
           <h1 className="text-xl font-bold">Загрузка тренеров</h1>
           <p className="text-sm text-[var(--text-muted)]">Подопечные, занятость и сравнение нагрузки между тренерами</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <NetworkGymFilter value={gym} onChange={setGym} />
           <Button size="sm" variant="secondary" onClick={() => setAddStaffOpen(true)}>
             <ShieldPlus size={14} /> Новый администратор
           </Button>

@@ -40,9 +40,12 @@ export class TrainersService {
   }
 
   async createLogin(actor: JwtPayload, trainerId: string, dto: CreateLoginDto) {
-    const trainer = await this.findOne(actor.gymId, trainerId);
+    const trainer = await this.findOne(actor, trainerId);
     if (trainer.userId) throw new BadRequestException('У тренера уже есть учётная запись');
-    const user = await this.auth.createUser(actor.gymId, dto.email, dto.password, 'TRAINER');
+    // Логин заводится в ДОМАШНЕЙ точке тренера, а не в той, где сейчас
+    // находится CEO: с сетевым охватом карточки (P1.7) это может быть
+    // другая точка сети.
+    const user = await this.auth.createUser(trainer.gymId, dto.email, dto.password, 'TRAINER');
     await this.prisma.trainer.update({ where: { id: trainerId }, data: { userId: user.id } });
     await this.activityLog.log(actor, 'Выдал доступ в приложение', trainer.name, dto.email);
     await this.email.send(
@@ -60,17 +63,32 @@ export class TrainersService {
     return { OR: [{ gymId }, { additionalGyms: { some: { gymId } } }] };
   }
 
-  findAll(gymId: string) {
+  private static scopeToGyms(gymIds: string[]) {
+    return { OR: [{ gymId: { in: gymIds } }, { additionalGyms: { some: { gymId: { in: gymIds } } } }] };
+  }
+
+  // Охват списка/карточки тренера (P1.7): CEO — вся сеть (отчёты и
+  // занятость без раздельного захода в каждую точку; карточка из сетевого
+  // списка не должна открываться 404), остальным ролям — как раньше,
+  // строго "на этой точке".
+  private async scopeForActor(actor: JwtPayload) {
+    if (actor.role !== 'CEO') return TrainersService.scopeToGym(actor.gymId);
+    return TrainersService.scopeToGyms(await this.gyms.resolveNetworkGymIds(actor));
+  }
+
+  // additionalGyms приложен для CEO-фильтра «тренер работает на выбранной
+  // точке» (домашняя или дополнительная).
+  async findAll(actor: JwtPayload) {
     return this.prisma.trainer.findMany({
-      where: TrainersService.scopeToGym(gymId),
-      include: { workHours: true, credentials: true, competitionPhotos: true },
+      where: await this.scopeForActor(actor),
+      include: { workHours: true, credentials: true, competitionPhotos: true, additionalGyms: { select: { gymId: true } } },
       orderBy: { createdAt: 'asc' },
     });
   }
 
-  async findOne(gymId: string, id: string) {
+  async findOne(actor: JwtPayload, id: string) {
     const trainer = await this.prisma.trainer.findFirst({
-      where: { id, ...TrainersService.scopeToGym(gymId) },
+      where: { id, ...(await this.scopeForActor(actor)) },
       include: { clients: true, workHours: true, credentials: true, competitionPhotos: true },
     });
     if (!trainer) throw new NotFoundException('Тренер не найден');
@@ -87,7 +105,7 @@ export class TrainersService {
 
   // Список точек тренера (домашняя + дополнительные) — для карточки в CEO-кабинете.
   async listGyms(actor: JwtPayload, trainerId: string) {
-    const trainer = await this.findOne(actor.gymId, trainerId);
+    const trainer = await this.findOne(actor, trainerId);
     const additional = await this.prisma.trainerGym.findMany({ where: { trainerId }, include: { gym: true } });
     return { homeGymId: trainer.gymId, additional: additional.map((a) => a.gym) };
   }
@@ -96,7 +114,7 @@ export class TrainersService {
   // сети (проверяется через networkId, а не по параметру запроса).
   async assignToGym(actor: JwtPayload, trainerId: string, gymId: string) {
     await this.gyms.assertBelongsToOwnedNetwork(actor, gymId);
-    const trainer = await this.findOne(actor.gymId, trainerId);
+    const trainer = await this.findOne(actor, trainerId);
     if (trainer.gymId === gymId) throw new BadRequestException('Это и так домашняя точка тренера');
     await this.prisma.trainerGym.upsert({
       where: { trainerId_gymId: { trainerId, gymId } },
@@ -108,7 +126,7 @@ export class TrainersService {
   }
 
   async unassignFromGym(actor: JwtPayload, trainerId: string, gymId: string) {
-    const trainer = await this.findOne(actor.gymId, trainerId);
+    const trainer = await this.findOne(actor, trainerId);
     await this.prisma.trainerGym.delete({ where: { trainerId_gymId: { trainerId, gymId } } }).catch(() => {});
     await this.activityLog.log(actor, 'Снял тренера с точки сети', trainer.name, `id точки: ${gymId}`);
     return { ok: true };

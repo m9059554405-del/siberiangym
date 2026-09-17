@@ -16,7 +16,7 @@ export class WorkoutLogsController {
   @Roles(Role.CEO, Role.STAFF)
   @Get('workout-logs')
   listAll(@CurrentUser() user: JwtPayload) {
-    return this.workoutLogs.listAll(user.gymId);
+    return this.workoutLogs.listAll(user);
   }
 
   @Roles(Role.CEO, Role.STAFF, Role.TRAINER)

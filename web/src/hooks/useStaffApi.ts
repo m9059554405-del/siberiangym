@@ -2,8 +2,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import type { Client, ClubPost, ClubPostType, Gender, MembershipType, Membership, Tariff } from '../types'
 
-export function useAllClients() {
-  return useQuery({ queryKey: ['clients', 'all'], queryFn: () => api.get<Client[]>('/clients') })
+// network=true (P1.7) — клиенты всей сети: нужно CEO-отчёту «занятость
+// тренеров» (подопечные тренера живут в разных точках). Бэкенд учитывает
+// флаг только для CEO, остальным ролям он ничего не меняет.
+export function useAllClients(network = false) {
+  return useQuery({
+    queryKey: ['clients', 'all', network ? 'network' : 'gym'],
+    queryFn: () => api.get<Client[]>(network ? '/clients?network=1' : '/clients'),
+  })
 }
 
 export interface NetworkClientResult {

@@ -44,13 +44,18 @@ export interface Transaction {
   date: string
   amount: number
   category: TransactionCategory
+  gymId: string
+  gym?: { id: string; name: string } | null
   clientId: string
   client?: { name: string }
   trainerId: string | null
-  trainer?: { name: string } | null
+  trainer?: { name: string; avatarHue: number } | null
   description: string
 }
 
+// С P1.7 фид отдаёт выручку всей сети (эндпоинт CEO-only): точка приложена
+// к каждой строке, по ней строятся фильтр «вся сеть / точка» и разбивка
+// «выручка по точкам».
 export function useTransactions() {
   return useQuery({ queryKey: ['transactions'], queryFn: () => api.get<Transaction[]>('/transactions') })
 }

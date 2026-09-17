@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { LogWorkoutDto } from './dto/log-workout.dto';
 import { assertCanViewClientData } from '../clients/client-access.util';
+import { GymsService } from '../gyms/gyms.service';
 import type { JwtPayload } from '../auth/auth.service';
 
 function parseKg(load: string): number | null {
@@ -23,7 +24,7 @@ function parseRepsNumber(reps: string): number {
 
 @Injectable()
 export class WorkoutLogsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly gyms: GymsService) {}
 
   // Рейтинг по суммарно поднятым килограммам (вес × повторы) за период —
   // видно всем ролям в клубе, упражнения без веса (тело/кардио по времени)
@@ -61,9 +62,13 @@ export class WorkoutLogsService {
       .slice(0, limit);
   }
 
-  listAll(gymId: string) {
+  // Посещаемость (P1.7): CEO — вся сеть одной сводкой (gymId клиента
+  // приходит внутри client и используется вебом для фильтра по точке),
+  // STAFF — как раньше, строго своя точка.
+  async listAll(actor: JwtPayload) {
+    const gymIds = actor.role === 'CEO' ? await this.gyms.resolveNetworkGymIds(actor) : [actor.gymId];
     return this.prisma.workoutLogEntry.findMany({
-      where: { client: { gymId } },
+      where: { client: { gymId: { in: gymIds } } },
       include: { client: true, exercises: { include: { sets: true } } },
       orderBy: { date: 'desc' },
     });

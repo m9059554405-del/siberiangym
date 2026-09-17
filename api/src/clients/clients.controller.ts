@@ -17,8 +17,8 @@ export class ClientsController {
 
   @Roles(Role.CEO, Role.STAFF)
   @Get()
-  findAll(@CurrentUser() user: JwtPayload) {
-    return this.clients.findAll(user.gymId);
+  findAll(@Query('network') network: string | undefined, @CurrentUser() user: JwtPayload) {
+    return this.clients.findAll(user, network === '1');
   }
 
   @Roles(Role.CLIENT)

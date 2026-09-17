@@ -6,6 +6,7 @@ import { CreatePersonalSlotDto } from './dto/create-personal-slot.dto';
 import type { JwtPayload } from '../auth/auth.service';
 import { SlotStatus } from '@prisma/client';
 import { TrainersService } from '../trainers/trainers.service';
+import { GymsService } from '../gyms/gyms.service';
 
 // Резолвит clientId для self-service действий: клиент может действовать
 // только от своего имени, CEO/STAFF должны явно передать clientId.
@@ -25,12 +26,16 @@ export class ScheduleService {
     private readonly prisma: PrismaService,
     private readonly activityLog: ActivityLogService,
     private readonly trainers: TrainersService,
+    private readonly gyms: GymsService,
   ) {}
 
   // Тренер на нескольких точках сети (P1.3) должен видеть свой календарь
-  // целиком, без переключения точки — остальным ролям (клиент, STAFF, CEO)
-  // список остаётся строго про их текущую точку по токену, как и раньше.
+  // целиком, без переключения точки; CEO с P1.7 видит расписание сети
+  // целиком (основа отчётов «посещаемость» и «занятость тренеров» без
+  // раздельного захода в каждую точку). Клиенту и STAFF список остаётся
+  // строго про их текущую точку по токену, как и раньше.
   private async gymIdsForActor(actor: JwtPayload): Promise<string[]> {
+    if (actor.role === 'CEO') return this.gyms.resolveNetworkGymIds(actor);
     if (actor.role !== 'TRAINER') return [actor.gymId];
     const trainer = await this.prisma.trainer.findUnique({ where: { userId: actor.sub }, include: { additionalGyms: true } });
     if (!trainer) return [actor.gymId];
