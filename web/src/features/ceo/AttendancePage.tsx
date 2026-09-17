@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { useGroupClasses, usePersonalSlots, useTrainers } from '../../hooks/useClientApi'
 import { useAllWorkoutLogs } from '../../hooks/useCeoApi'
-import { NetworkGymFilter } from './NetworkGymFilter'
+import { NetworkGymFilter, defaultGymScope, inGymScope, trainerInGymScope } from './NetworkGymFilter'
 import { getAttendanceByDay, getTrainerHourlyOccupancy, getVisitTimeDistribution } from '../../lib/ceoSelectors'
 import { Card, SectionTitle, StatTile, Tabs } from '../../components/ui/Primitives'
 
@@ -12,18 +12,24 @@ export function AttendancePage() {
   const { data: groupClasses } = useGroupClasses()
   const { data: personalSlots } = usePersonalSlots()
   const [range, setRange] = useState<'30' | '60' | '90'>('30')
-  const [gym, setGym] = useState('')
+  const [gymScope, setGymScope] = useState<string[]>(defaultGymScope)
 
-  // Фиды CEO уже отдают всю сеть (P1.7); фильтр по точке — на клиенте.
-  // Тренер попадает под фильтр, если работает на точке: домашняя ИЛИ
-  // дополнительная (additionalGyms).
-  const logs = useMemo(() => (allLogs ?? []).filter((l) => !gym || l.client?.gymId === gym), [allLogs, gym])
-  const fTrainers = useMemo(
-    () => (trainers ?? []).filter((t) => !gym || t.gymId === gym || t.additionalGyms?.some((a) => a.gymId === gym)),
-    [trainers, gym],
+  // Фиды CEO уже отдают всю сеть (P1.7); фильтр по точкам — на клиенте.
+  // Дефолт — активная точка (переключатель в шапке), можно выбрать
+  // несколько площадок или всю сеть.
+  const logs = useMemo(
+    () => (allLogs ?? []).filter((l) => inGymScope(gymScope, l.client?.gymId)),
+    [allLogs, gymScope],
   )
-  const fClasses = useMemo(() => (groupClasses ?? []).filter((c) => !gym || c.gymId === gym), [groupClasses, gym])
-  const fSlots = useMemo(() => (personalSlots ?? []).filter((s) => !gym || s.gymId === gym), [personalSlots, gym])
+  const fTrainers = useMemo(() => (trainers ?? []).filter((t) => trainerInGymScope(gymScope, t)), [trainers, gymScope])
+  const fClasses = useMemo(
+    () => (groupClasses ?? []).filter((c) => inGymScope(gymScope, c.gymId)),
+    [groupClasses, gymScope],
+  )
+  const fSlots = useMemo(
+    () => (personalSlots ?? []).filter((s) => inGymScope(gymScope, s.gymId)),
+    [personalSlots, gymScope],
+  )
 
   const points = useMemo(() => getAttendanceByDay(logs, Number(range)), [logs, range])
 
@@ -54,7 +60,7 @@ export function AttendancePage() {
           <h1 className="text-xl font-bold">Посещаемость</h1>
           <p className="text-sm text-[var(--text-muted)]">Сколько людей ходит в клуб по дням и неделям</p>
         </div>
-        <NetworkGymFilter value={gym} onChange={setGym} />
+        <NetworkGymFilter value={gymScope} onChange={setGymScope} />
       </div>
 
       <div className="grid grid-cols-3 gap-3">

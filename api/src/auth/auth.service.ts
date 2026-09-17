@@ -85,7 +85,10 @@ export class AuthService {
   // инструмент не имеет смысла при текущей модели Network.ownerId (P1.1) —
   // новый CEO-пользователь не будет владеть никакой сетью и не сможет
   // пройти resolveOwnedNetworkId ни в одном сетевом эндпоинте.
-  async createStaff(actor: JwtPayload, dto: { name: string; email: string; password: string; phone?: string }) {
-    return this.createUser(actor.gymId, dto.email, dto.password, Role.STAFF, dto.phone, dto.name);
+  // gymId (управление точками) — опциональная точка сети, уже проверенная
+  // контроллером на принадлежность сети владельца; без неё — как раньше,
+  // текущая точка токена.
+  async createStaff(actor: JwtPayload, dto: { name: string; email: string; password: string; phone?: string; gymId?: string }) {
+    return this.createUser(dto.gymId ?? actor.gymId, dto.email, dto.password, Role.STAFF, dto.phone, dto.name);
   }
 }

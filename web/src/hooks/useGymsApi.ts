@@ -18,3 +18,47 @@ export function useCreateGym() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['gyms'] }),
   })
 }
+
+// Управление точками (заявка клуба): переименование/правка настроек,
+// удаление пустой точки, администраторы сети и их перенос между точками.
+export function useUpdateGym() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (vars: { gymId: string; data: { name?: string; selfTrainingMinAge?: number } }) =>
+      api.patch<Gym>(`/gyms/${vars.gymId}`, vars.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['gyms'] }),
+  })
+}
+
+export function useDeleteGym() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (gymId: string) => api.delete(`/gyms/${gymId}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['gyms'] }),
+  })
+}
+
+export interface StaffUser {
+  id: string
+  name: string | null
+  email: string | null
+  phone: string | null
+  gymId: string
+  isActive: boolean
+  createdAt: string
+}
+
+export function useNetworkStaff() {
+  return useQuery({
+    queryKey: ['gyms', 'staff'],
+    queryFn: () => api.get<StaffUser[]>('/gyms/staff'),
+  })
+}
+
+export function useMoveStaff() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (vars: { userId: string; gymId: string }) => api.patch<StaffUser>(`/gyms/staff/${vars.userId}`, { gymId: vars.gymId }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['gyms', 'staff'] }),
+  })
+}

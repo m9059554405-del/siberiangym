@@ -16,7 +16,10 @@ export function useAssignTrainerGym(trainerId: string | undefined) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (gymId: string) => api.post(`/trainers/${trainerId}/gyms`, { gymId }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['trainers', trainerId, 'gyms'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['trainers', trainerId, 'gyms'] })
+      qc.invalidateQueries({ queryKey: ['trainers'] })
+    },
   })
 }
 
@@ -24,7 +27,10 @@ export function useUnassignTrainerGym(trainerId: string | undefined) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (gymId: string) => api.post(`/trainers/${trainerId}/gyms/${gymId}/unassign`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['trainers', trainerId, 'gyms'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['trainers', trainerId, 'gyms'] })
+      qc.invalidateQueries({ queryKey: ['trainers'] })
+    },
   })
 }
 
@@ -132,13 +138,17 @@ export function useDeleteReportOffer() {
   })
 }
 
-// Инструмент CEO «Завести администратора» (P1.10) — заводится сразу в
+// Инструмент CEO «Завести администратора» (P1.10) — по умолчанию в
 // активную (по токену) точку сети, ролью STAFF, без второго шага
 // (в отличие от тренера, у STAFF нет отдельной карточки-сущности).
+// gymId (страница «Точки сети») — создать администратора сразу в выбранную
+// точку сети.
 export function useCreateStaff() {
+  const qc = useQueryClient()
   return useMutation({
-    mutationFn: (dto: { name: string; email: string; password: string; phone?: string }) =>
+    mutationFn: (dto: { name: string; email: string; password: string; phone?: string; gymId?: string }) =>
       api.post<{ id: string; email: string; name: string | null }>('/auth/staff', dto),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['gyms', 'staff'] }),
   })
 }
 

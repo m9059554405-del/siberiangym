@@ -4,11 +4,12 @@ import { ChevronRight, Plus, ShieldPlus } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { useGroupClasses, usePersonalSlots, useTrainers } from '../../hooks/useClientApi'
 import { useAllClients } from '../../hooks/useStaffApi'
-import { useCreateStaff, useCreateTrainer, type CreateTrainerPayload } from '../../hooks/useCeoApi'
+import { useCreateTrainer, type CreateTrainerPayload } from '../../hooks/useCeoApi'
 import { useNetworkGyms } from '../../hooks/useGymsApi'
 import { useAuthStore } from '../../store/useAuthStore'
 import { getTrainerLoad } from '../../lib/ceoSelectors'
-import { NetworkGymFilter } from './NetworkGymFilter'
+import { NetworkGymFilter, defaultGymScope, inGymScope, trainerInGymScope } from './NetworkGymFilter'
+import { AddStaffModal } from './AddStaffModal'
 import { Avatar } from '../../components/ui/Avatar'
 import { Badge, Button, Card, SectionTitle, StatTile } from '../../components/ui/Primitives'
 import { Modal } from '../../components/ui/Modal'
@@ -20,61 +21,6 @@ const EMPLOYMENT_LABEL: Record<EmploymentType, string> = {
   EMPLOYEE: 'Штатный сотрудник',
   SELF_EMPLOYED: 'Самозанятый',
   SOLE_PROPRIETOR: 'ИП',
-}
-
-// Инструмент CEO «Завести администратора» (P1.10) — в отличие от тренера,
-// у STAFF нет отдельной карточки-сущности, поэтому это один шаг, а не два.
-function AddStaffModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const createStaff = useCreateStaff()
-  const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
-  const [phone, setPhone] = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [done, setDone] = useState(false)
-
-  function reset() {
-    setName(''); setEmail(''); setPhone(''); setPassword(''); setError(null); setDone(false)
-  }
-
-  function submit() {
-    if (!name.trim() || !email.trim() || password.length < 8) return
-    setError(null)
-    createStaff.mutate(
-      { name: name.trim(), email: email.trim(), phone: phone.trim() || undefined, password },
-      { onSuccess: () => setDone(true), onError: (err) => setError(err instanceof ApiError ? err.message : 'Не удалось создать администратора') },
-    )
-  }
-
-  return (
-    <Modal open={open} onClose={() => { reset(); onClose() }} title="Новый администратор">
-      {done ? (
-        <div className="flex flex-col items-center gap-2 py-4 text-center">
-          <Badge tone="success">Администратор создан ✓</Badge>
-          <p className="text-sm text-[var(--text-muted)]">Логин и пароль можно передать сотруднику — доступ уже активен.</p>
-          <Button variant="secondary" onClick={() => { reset(); onClose() }}>Готово</Button>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>}
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Имя Фамилия"
-            className="rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]" />
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email для входа"
-            className="rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]" />
-          <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Телефон (необязательно)"
-            className="rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm" />
-          <input type="text" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Временный пароль (мин. 8 символов)"
-            className="rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm" />
-          <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => { reset(); onClose() }}>Отмена</Button>
-            <Button className="flex-1" onClick={submit} disabled={!name.trim() || !email.trim() || password.length < 8 || createStaff.isPending}>
-              <ShieldPlus size={14} /> Создать администратора
-            </Button>
-          </div>
-        </div>
-      )}
-    </Modal>
-  )
 }
 
 // P1.4: "в один проход" — карточка, статус занятости, точки сети,
@@ -216,16 +162,20 @@ export function TrainerLoadPage() {
   const { data: allSlots } = usePersonalSlots()
   const [addOpen, setAddOpen] = useState(false)
   const [addStaffOpen, setAddStaffOpen] = useState(false)
-  const [gym, setGym] = useState('')
+  const [gymScope, setGymScope] = useState<string[]>(defaultGymScope)
 
-  // Фиды уже отдают всю сеть (P1.7) — фильтр по точке считается на клиенте.
-  const trainers = useMemo(
-    () => (allTrainers ?? []).filter((t) => !gym || t.gymId === gym || t.additionalGyms?.some((a) => a.gymId === gym)),
-    [allTrainers, gym],
+  // Фиды уже отдают всю сеть (P1.7) — фильтр по точкам считается на
+  // клиенте; дефолт — активная точка из переключателя в шапке.
+  const trainers = useMemo(() => (allTrainers ?? []).filter((t) => trainerInGymScope(gymScope, t)), [allTrainers, gymScope])
+  const clients = useMemo(() => (allClients ?? []).filter((c) => inGymScope(gymScope, c.gymId)), [allClients, gymScope])
+  const groupClasses = useMemo(
+    () => (allClasses ?? []).filter((c) => inGymScope(gymScope, c.gymId)),
+    [allClasses, gymScope],
   )
-  const clients = useMemo(() => (allClients ?? []).filter((c) => !gym || c.gymId === gym), [allClients, gym])
-  const groupClasses = useMemo(() => (allClasses ?? []).filter((c) => !gym || c.gymId === gym), [allClasses, gym])
-  const personalSlots = useMemo(() => (allSlots ?? []).filter((s) => !gym || s.gymId === gym), [allSlots, gym])
+  const personalSlots = useMemo(
+    () => (allSlots ?? []).filter((s) => inGymScope(gymScope, s.gymId)),
+    [allSlots, gymScope],
+  )
 
   if (!allTrainers || !allClients || !allClasses || !allSlots) return null
 
@@ -241,7 +191,7 @@ export function TrainerLoadPage() {
           <p className="text-sm text-[var(--text-muted)]">Подопечные, занятость и сравнение нагрузки между тренерами</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <NetworkGymFilter value={gym} onChange={setGym} />
+          <NetworkGymFilter value={gymScope} onChange={setGymScope} />
           <Button size="sm" variant="secondary" onClick={() => setAddStaffOpen(true)}>
             <ShieldPlus size={14} /> Новый администратор
           </Button>

@@ -34,6 +34,7 @@ import { TrainerDetailPage } from './features/ceo/TrainerDetailPage'
 import { MaintenancePage } from './features/ceo/MaintenancePage'
 import { ReportOffersPage } from './features/ceo/ReportOffersPage'
 import { ActivityLogPage } from './features/ceo/ActivityLogPage'
+import { GymsPage } from './features/ceo/GymsPage'
 
 const ROLE_HOME: Record<Role, string> = {
   CLIENT: '/client/payments',
@@ -123,6 +124,7 @@ export default function App() {
             <Route path="attendance" element={<AttendancePage />} />
             <Route path="revenue" element={<RevenuePage />} />
             <Route path="clients" element={<ClientBasePage />} />
+            <Route path="gyms" element={<GymsPage />} />
             <Route path="orders" element={<OrdersPage />} />
             <Route path="stock" element={<StockPage />} />
             <Route path="maintenance" element={<MaintenancePage />} />

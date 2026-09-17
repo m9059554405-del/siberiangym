@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { useTransactions } from '../../hooks/useCeoApi'
-import { NetworkGymFilter } from './NetworkGymFilter'
+import { NetworkGymFilter, defaultGymScope, inGymScope } from './NetworkGymFilter'
 import { getRevenueByDay, getRevenueByGym, getRevenueByMonth, getTopTrainersByRevenue, getTotalRevenue } from '../../lib/ceoSelectors'
 import { Avatar } from '../../components/ui/Avatar'
 import { Card, SectionTitle, StatTile, Tabs } from '../../components/ui/Primitives'
@@ -22,11 +22,15 @@ function fmt(n: number) {
 export function RevenuePage() {
   const { data: transactions } = useTransactions()
   const [granularity, setGranularity] = useState<'day' | 'month'>('day')
-  const [gym, setGym] = useState('')
+  const [gymScope, setGymScope] = useState<string[]>(defaultGymScope)
 
-  // Фид уже отдаёт всю сеть (P1.7) — фильтр по точке считается на клиенте,
-  // без перезагрузки данных.
-  const tx = useMemo(() => (transactions ?? []).filter((t) => !gym || t.gymId === gym), [transactions, gym])
+  // Фид уже отдаёт всю сеть (P1.7) — фильтр по точкам считается на клиенте,
+  // без перезагрузки данных. Дефолт — активная точка из переключателя
+  // в шапке; можно выбрать группу площадок или всю сеть.
+  const tx = useMemo(
+    () => (transactions ?? []).filter((t) => inGymScope(gymScope, t.gymId)),
+    [transactions, gymScope],
+  )
   const byDay = useMemo(() => getRevenueByDay(tx, 30), [tx])
   const byMonth = useMemo(() => getRevenueByMonth(tx), [tx])
   const byGym = useMemo(() => getRevenueByGym(transactions ?? []), [transactions])
@@ -48,7 +52,7 @@ export function RevenuePage() {
           <h1 className="text-xl font-bold">Выручка</h1>
           <p className="text-sm text-[var(--text-muted)]">По всей сети, по дням, по месяцам и по источникам дохода</p>
         </div>
-        <NetworkGymFilter value={gym} onChange={setGym} />
+        <NetworkGymFilter value={gymScope} onChange={setGymScope} />
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -123,7 +127,7 @@ export function RevenuePage() {
         </Card>
       </div>
 
-      {gym === '' && byGym.length > 1 && (
+      {gymScope.length === 0 && byGym.length > 1 && (
         <Card>
           <SectionTitle title="Выручка по точкам" subtitle="Вся сеть одной сводкой, без переключения точки" />
           <div className="flex flex-col gap-2.5">
