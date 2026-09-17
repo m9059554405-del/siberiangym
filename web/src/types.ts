@@ -164,9 +164,12 @@ export interface Trainer {
   competitionPhotos: TrainerCompetitionPhoto[]
 }
 
+export type MembershipScope = 'SINGLE_GYM' | 'NETWORK'
+
 export interface Membership {
   id: string
   type: MembershipType
+  scope: MembershipScope
   purchasedAt: string
   expiresAt: string | null
   visitsTotal: number | null
@@ -312,6 +315,10 @@ export interface MembershipPricing {
   monthly: number
   pack10: number
   pack20: number
+  singleNetwork: number | null
+  monthlyNetwork: number | null
+  pack10Network: number | null
+  pack20Network: number | null
   personalSingle: number
   personalPack5: number
   groupSingle: number

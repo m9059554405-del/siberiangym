@@ -44,9 +44,9 @@ export function PaymentsPage() {
   const [showHistory, setShowHistory] = useState(false)
   const [pendingOrder, setPendingOrder] = useState<Order | null>(null)
 
-  function purchaseMembership(type: MembershipType) {
+  function purchaseMembership(type: MembershipType, scope: 'SINGLE_GYM' | 'NETWORK' = 'SINGLE_GYM') {
     if (!client) return
-    createCashOrder.mutate({ clientId: client.id, lines: [{ type: 'MEMBERSHIP_PURCHASE', meta: { membershipType: type } }] }, { onSuccess: setPendingOrder })
+    createCashOrder.mutate({ clientId: client.id, lines: [{ type: 'MEMBERSHIP_PURCHASE', meta: { membershipType: type, scope } }] }, { onSuccess: setPendingOrder })
   }
 
   function changeTariff(tariff: Tariff) {
@@ -96,7 +96,10 @@ export function PaymentsPage() {
         <div className="flex items-start justify-between">
           <div>
             <div className="text-xs uppercase tracking-wide text-white/70">Текущий абонемент</div>
-            <div className="mt-1 text-lg font-semibold">{currentLabel?.title ?? 'Нет абонемента'}</div>
+            <div className="mt-1 text-lg font-semibold">
+              {currentLabel?.title ?? 'Нет абонемента'}
+              {client.membership?.scope === 'NETWORK' && <span className="ml-1.5 text-sm font-normal text-white/80">· вся сеть</span>}
+            </div>
           </div>
           {status && <Badge tone={status.tone}>{status.label}</Badge>}
         </div>
@@ -124,8 +127,12 @@ export function PaymentsPage() {
           {(Object.keys(MEMBERSHIP_LABELS) as MembershipType[]).map((type) => {
             const info = MEMBERSHIP_LABELS[type]
             const Icon = info.icon
-            const isCurrent = client.membership?.type === type && client.membership?.status === 'ACTIVE'
+            const isActive = client.membership?.type === type && client.membership?.status === 'ACTIVE'
+            const isCurrentSingle = isActive && (client.membership?.scope ?? 'SINGLE_GYM') === 'SINGLE_GYM'
+            const isCurrentNetwork = isActive && client.membership?.scope === 'NETWORK'
             const priceKey = type.toLowerCase() as 'single' | 'monthly' | 'pack10' | 'pack20'
+            const networkPriceKey = `${priceKey}Network` as const
+            const networkPrice = pricing[networkPriceKey]
             return (
               <Card key={type} className="flex h-full flex-col gap-2">
                 <div className="flex items-center gap-2 text-[var(--accent-strong)]">
@@ -133,16 +140,31 @@ export function PaymentsPage() {
                   <span className="text-sm font-semibold text-[var(--text)]">{info.title}</span>
                 </div>
                 <p className="flex-1 text-xs text-[var(--text-muted)]">{info.desc}</p>
-                <div className="mt-auto flex items-center justify-between">
-                  <span className="text-lg font-bold">{formatMoney(pricing[priceKey])} ₽</span>
-                  <Button
-                    size="sm"
-                    variant={isCurrent ? 'secondary' : 'primary'}
-                    disabled={isCurrent || createCashOrder.isPending}
-                    onClick={() => purchaseMembership(type)}
-                  >
-                    {isCurrent ? 'Активен' : 'Купить'}
-                  </Button>
+                <div className="mt-auto flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-lg font-bold">{formatMoney(pricing[priceKey])} ₽</span>
+                    <Button
+                      size="sm"
+                      variant={isCurrentSingle ? 'secondary' : 'primary'}
+                      disabled={isCurrentSingle || createCashOrder.isPending}
+                      onClick={() => purchaseMembership(type, 'SINGLE_GYM')}
+                    >
+                      {isCurrentSingle ? 'Активен' : 'Купить'}
+                    </Button>
+                  </div>
+                  {networkPrice != null && (
+                    <div className="flex items-center justify-between border-t border-[var(--border)] pt-1.5">
+                      <span className="text-xs text-[var(--text-muted)]">Вся сеть — {formatMoney(networkPrice)} ₽</span>
+                      <Button
+                        size="sm"
+                        variant={isCurrentNetwork ? 'secondary' : 'ghost'}
+                        disabled={isCurrentNetwork || createCashOrder.isPending}
+                        onClick={() => purchaseMembership(type, 'NETWORK')}
+                      >
+                        {isCurrentNetwork ? 'Активен' : 'Купить'}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </Card>
             )

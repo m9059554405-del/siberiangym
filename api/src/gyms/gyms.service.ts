@@ -34,6 +34,17 @@ export class GymsService {
     const gym = await this.prisma.gym.create({
       data: { networkId, name: dto.name, selfTrainingMinAge: dto.selfTrainingMinAge ?? 18 },
     });
+    // Без этого свежая точка вообще не может продать абонемент — эндпоинт
+    // цен (P1.2) требует существующую строку MembershipPricing, а её
+    // прежде вообще неоткуда было взять, кроме seed-скрипта. Копируем
+    // текущие цены (включая сетевые, если настроены) как разумный
+    // стартовый набор — CEO может сразу поправить их через PATCH /pricing,
+    // переключившись на новую точку.
+    const sourcePricing = await this.prisma.membershipPricing.findUnique({ where: { gymId: actor.gymId } });
+    if (sourcePricing) {
+      const { id: _id, gymId: _gymId, ...priceFields } = sourcePricing;
+      await this.prisma.membershipPricing.create({ data: { gymId: gym.id, ...priceFields } });
+    }
     await this.activityLog.log(actor, 'Добавил точку в сеть', gym.name, `id: ${gym.id}`);
     return gym;
   }

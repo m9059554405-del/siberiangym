@@ -78,6 +78,10 @@ export class RefundsService {
           where: { clientId },
           data: {
             type: prev.type,
+            // Снимок мог быть сделан до P1.2 (нет поля scope) — по
+            // умолчанию откатываем на "своя точка", это было единственным
+            // вариантом на момент таких старых заказов.
+            scope: prev.scope ?? 'SINGLE_GYM',
             purchasedAt: new Date(prev.purchasedAt),
             expiresAt: prev.expiresAt ? new Date(prev.expiresAt) : null,
             visitsTotal: prev.visitsTotal,

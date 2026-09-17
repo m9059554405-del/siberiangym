@@ -1,11 +1,91 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
-import { useTrainers } from '../../hooks/useClientApi'
+import { usePricing, useTrainers } from '../../hooks/useClientApi'
 import { useAllClients } from '../../hooks/useStaffApi'
+import { useUpdatePricing } from '../../hooks/useCeoApi'
 import { getClientBaseBreakdown } from '../../lib/ceoSelectors'
-import { Badge, Card, SectionTitle, StatTile } from '../../components/ui/Primitives'
+import { Badge, Button, Card, SectionTitle, StatTile } from '../../components/ui/Primitives'
 import { ClientOutreachList } from '../../components/ClientOutreachList'
-import type { ClientFormat, MembershipStatus } from '../../types'
+import { formatMoney } from '../../lib/format'
+import type { ClientFormat, MembershipPricing, MembershipStatus } from '../../types'
+
+const PRICE_ROWS: { key: keyof MembershipPricing; networkKey: keyof MembershipPricing; label: string }[] = [
+  { key: 'single', networkKey: 'singleNetwork', label: 'Разовое занятие' },
+  { key: 'monthly', networkKey: 'monthlyNetwork', label: 'Абонемент на месяц' },
+  { key: 'pack10', networkKey: 'pack10Network', label: 'Пакет на 10 занятий' },
+  { key: 'pack20', networkKey: 'pack20Network', label: 'Пакет на 20 занятий' },
+]
+
+// Раньше цены можно было поменять только напрямую в базе — ни одной формы
+// не существовало. Понадобилось для P1.2: без этого сетевые цены (второй
+// столбец) было бы нечем настроить через приложение вообще.
+function PricingSection() {
+  const { data: pricing } = usePricing()
+  const updatePricing = useUpdatePricing()
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState<Partial<MembershipPricing>>({})
+
+  if (!pricing) return null
+
+  function startEdit() {
+    setDraft({
+      single: pricing!.single, monthly: pricing!.monthly, pack10: pricing!.pack10, pack20: pricing!.pack20,
+      singleNetwork: pricing!.singleNetwork, monthlyNetwork: pricing!.monthlyNetwork,
+      pack10Network: pricing!.pack10Network, pack20Network: pricing!.pack20Network,
+    })
+    setEditing(true)
+  }
+
+  function save() {
+    updatePricing.mutate(draft, { onSuccess: () => setEditing(false) })
+  }
+
+  return (
+    <Card>
+      <SectionTitle
+        title="Тарифы абонементов"
+        subtitle="Цена на этой точке и, если настроена, на всей сети (P1.2)"
+        action={
+          editing ? (
+            <div className="flex gap-1.5">
+              <Button size="sm" variant="secondary" onClick={() => setEditing(false)}>Отмена</Button>
+              <Button size="sm" onClick={save} disabled={updatePricing.isPending}>Сохранить</Button>
+            </div>
+          ) : (
+            <Button size="sm" variant="secondary" onClick={startEdit}>Изменить</Button>
+          )
+        }
+      />
+      <div className="flex flex-col gap-2">
+        {PRICE_ROWS.map(({ key, networkKey, label }) => (
+          <div key={key} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 rounded-lg bg-[var(--surface-sunken)] px-3 py-2 text-sm">
+            <span>{label}</span>
+            {editing ? (
+              <input
+                type="number" min={0} value={(draft[key] as number) ?? 0}
+                onChange={(e) => setDraft((d) => ({ ...d, [key]: Number(e.target.value) }))}
+                className="w-24 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-2 py-1 text-sm"
+              />
+            ) : (
+              <span className="font-medium">{formatMoney(pricing[key] as number)} ₽</span>
+            )}
+            {editing ? (
+              <input
+                type="number" min={0} placeholder="вся сеть" value={(draft[networkKey] as number | null) ?? ''}
+                onChange={(e) => setDraft((d) => ({ ...d, [networkKey]: e.target.value === '' ? null : Number(e.target.value) }))}
+                className="w-28 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-2 py-1 text-sm"
+              />
+            ) : (
+              <span className="text-xs text-[var(--text-faint)]">
+                {pricing[networkKey] != null ? `вся сеть — ${formatMoney(pricing[networkKey] as number)} ₽` : 'вся сеть — не настроено'}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </Card>
+  )
+}
 
 const FORMAT_LABELS: Record<ClientFormat, string> = { PERSONAL: 'Персонально', GROUP: 'Группы', SELF: 'Самостоятельно' }
 const FORMAT_COLORS: Record<ClientFormat, string> = { PERSONAL: 'var(--ceo-accent)', GROUP: '#3b82f6', SELF: '#93c5fd' }
@@ -44,6 +124,8 @@ export function ClientBasePage() {
         <StatTile label="Меняли тренера/формат" value={switched.length} hint="за последние месяцы" />
         <StatTile label="Самостоятельных" value={breakdown.SELF} />
       </div>
+
+      <PricingSection />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Card>

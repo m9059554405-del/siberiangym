@@ -1,6 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
-import type { DirectorMessage, OfferAudience, TransactionCategory, WorkoutLogEntry } from '../types'
+import type { DirectorMessage, MembershipPricing, OfferAudience, TransactionCategory, WorkoutLogEntry } from '../types'
+
+// Изменение цен точки (P1.2) — раньше не было ни одного эндпоинта для
+// этого, только seed-скрипт при первом развёртывании. Частичный PATCH:
+// присылаются только те поля, которые правит форма.
+export function useUpdatePricing() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (dto: Partial<MembershipPricing>) => api.patch<MembershipPricing>('/pricing', dto),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pricing'] }),
+  })
+}
 
 export interface Transaction {
   id: string

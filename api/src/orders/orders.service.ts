@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { MembershipType, OrderLineType, Prisma, Tariff, TransactionCategory } from '@prisma/client';
+import { MembershipScope, MembershipType, OrderLineType, Prisma, Tariff, TransactionCategory } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActivityLogService } from '../activity-log/activity-log.service';
 import { EmailService } from '../email/email.service';
@@ -121,21 +121,29 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
         if (!membershipType || !(membershipType in VALIDITY_DAYS)) {
           throw new BadRequestException('Не указан или некорректен тип абонемента');
         }
+        // Область действия (P1.2) — "своя точка" по умолчанию, для
+        // обратной совместимости со всеми вызовами до появления сети.
+        const scope = ((meta.scope as MembershipScope | undefined) ?? 'SINGLE_GYM') as MembershipScope;
+        if (scope !== 'SINGLE_GYM' && scope !== 'NETWORK') {
+          throw new BadRequestException('Некорректная область действия абонемента');
+        }
         await this.assertGuardianConsentsIfMinor(gymId, clientId);
         const pricing = await this.prisma.membershipPricing.findUnique({ where: { gymId } });
-        const priceMap: Record<MembershipType, number | undefined> = {
-          SINGLE: pricing?.single,
-          MONTHLY: pricing?.monthly,
-          PACK10: pricing?.pack10,
-          PACK20: pricing?.pack20,
-        };
+        const priceMap: Record<MembershipType, number | undefined> =
+          scope === 'NETWORK'
+            ? { SINGLE: pricing?.singleNetwork ?? undefined, MONTHLY: pricing?.monthlyNetwork ?? undefined, PACK10: pricing?.pack10Network ?? undefined, PACK20: pricing?.pack20Network ?? undefined }
+            : { SINGLE: pricing?.single, MONTHLY: pricing?.monthly, PACK10: pricing?.pack10, PACK20: pricing?.pack20 };
+        const price = priceMap[membershipType];
+        if (scope === 'NETWORK' && price == null) {
+          throw new BadRequestException('На этой точке не настроена цена абонемента на всю сеть для этого типа — обратитесь к CEO');
+        }
         const membership = await this.prisma.membership.findUnique({ where: { clientId } });
         const isRenewal = !!membership;
         return {
           type: isRenewal ? OrderLineType.MEMBERSHIP_RENEWAL : OrderLineType.MEMBERSHIP_PURCHASE,
           refId: null,
-          amount: priceMap[membershipType] ?? 0,
-          meta: { membershipType },
+          amount: price ?? 0,
+          meta: { membershipType, scope },
         };
       }
 
@@ -269,6 +277,7 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
       case 'MEMBERSHIP_PURCHASE':
       case 'MEMBERSHIP_RENEWAL': {
         const membershipType = meta.membershipType as MembershipType;
+        const scope = ((meta.scope as MembershipScope | undefined) ?? 'SINGLE_GYM') as MembershipScope;
         const validityDays = VALIDITY_DAYS[membershipType];
         const expiresAt = validityDays ? new Date(Date.now() + validityDays * 86400000) : null;
         const visitsTotal = VISITS_TOTAL[membershipType];
@@ -281,6 +290,7 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
           ? {
               hadMembership: true,
               type: before.type,
+              scope: before.scope,
               purchasedAt: before.purchasedAt.toISOString(),
               expiresAt: before.expiresAt?.toISOString() ?? null,
               visitsTotal: before.visitsTotal,
@@ -290,11 +300,11 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
           : { hadMembership: false };
         await tx.membership.upsert({
           where: { clientId },
-          create: { clientId, type: membershipType, purchasedAt: new Date(), expiresAt, visitsTotal, visitsLeft: visitsTotal, status: 'ACTIVE' },
-          update: { type: membershipType, purchasedAt: new Date(), expiresAt, visitsTotal, visitsLeft: visitsTotal, status: 'ACTIVE' },
+          create: { clientId, type: membershipType, scope, purchasedAt: new Date(), expiresAt, visitsTotal, visitsLeft: visitsTotal, status: 'ACTIVE' },
+          update: { type: membershipType, scope, purchasedAt: new Date(), expiresAt, visitsTotal, visitsLeft: visitsTotal, status: 'ACTIVE' },
         });
         return {
-          description: `${MEMBERSHIP_LABEL[membershipType]}${expiresAt ? ` до ${expiresAt.toISOString().slice(0, 10)}` : ''}`,
+          description: `${MEMBERSHIP_LABEL[membershipType]}${scope === 'NETWORK' ? ' (вся сеть)' : ''}${expiresAt ? ` до ${expiresAt.toISOString().slice(0, 10)}` : ''}`,
           trainerId: null,
           membership: { type: membershipType, expiresAt },
           prevState,

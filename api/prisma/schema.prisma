@@ -214,6 +214,18 @@ enum MembershipStatus {
   FROZEN
 }
 
+// Абонемент либо действует только на той точке сети, где куплен, либо на
+// всей сети (P1.2) — цена за NETWORK обычно выше, настраивается отдельно
+// в MembershipPricing и не обязана существовать на каждой точке (точка
+// может вообще не продавать сетевой вариант). Реальная физическая
+// проверка "пустили клиента в конкретную дверь или нет" — это P1.5/P2.2
+// (турникет/чек-ин), которых ещё нет; здесь только тарифная модель и
+// то, что фактически куплено.
+enum MembershipScope {
+  SINGLE_GYM
+  NETWORK
+}
+
 // Текущий абонемент клиента — всегда один актуальный ряд на клиента
 // (история смен абонемента не нужна отдельной таблицей: каждая покупка
 // просто перезаписывает эти поля, как и в демо-версии).
@@ -222,6 +234,7 @@ model Membership {
   clientId    String           @unique @map("client_id")
   client      Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
   type        MembershipType
+  scope       MembershipScope  @default(SINGLE_GYM)
   purchasedAt DateTime         @map("purchased_at")
   expiresAt   DateTime?        @map("expires_at") @db.Date
   visitsTotal Int?             @map("visits_total")
@@ -734,6 +747,13 @@ model MembershipPricing {
   monthly        Int
   pack10         Int
   pack20         Int
+  // Сетевые варианты (P1.2) — действуют на всех точках сети, а не только
+  // здесь, поэтому обычно дороже. Nullable: точка не обязана продавать
+  // сетевой вариант вообще (null — только вариант "эта точка").
+  singleNetwork  Int?   @map("single_network")
+  monthlyNetwork Int?   @map("monthly_network")
+  pack10Network  Int?   @map("pack10_network")
+  pack20Network  Int?   @map("pack20_network")
   personalSingle Int    @map("personal_single")
   personalPack5  Int    @map("personal_pack5")
   groupSingle    Int    @map("group_single")

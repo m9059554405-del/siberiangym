@@ -15,7 +15,7 @@ import { formatMoney, getInitials } from '../../lib/format'
 import { usePricing } from '../../hooks/useClientApi'
 import { isLikelyMinor } from '../../lib/age'
 import { ApiError } from '../../lib/api'
-import type { Client, Gender, MembershipType, Order, Tariff } from '../../types'
+import type { Client, Gender, MembershipScope, MembershipType, Order, Tariff } from '../../types'
 
 function Field({ label, children }: PropsWithChildren<{ label: string }>) {
   return (
@@ -74,6 +74,7 @@ export function ClientsManagePage() {
   const goSelfTraining = useGoSelfTraining(editingId ?? undefined)
   const [editDraft, setEditDraft] = useState<ClientDraft>(EMPTY_DRAFT)
   const [renewType, setRenewType] = useState<MembershipType>('MONTHLY')
+  const [renewScope, setRenewScope] = useState<MembershipScope>('SINGLE_GYM')
   const [pendingOrder, setPendingOrder] = useState<Order | null>(null)
   const [orderError, setOrderError] = useState<string | null>(null)
 
@@ -135,6 +136,7 @@ export function ClientsManagePage() {
       membershipType: c.membership?.type ?? 'MONTHLY',
     })
     setRenewType(c.membership?.type ?? 'MONTHLY')
+    setRenewScope('SINGLE_GYM')
     setLoginEmail('')
     setLoginPassword('')
     setLoginDone(false)
@@ -280,6 +282,8 @@ export function ClientsManagePage() {
             pricing={pricing}
             renewType={renewType}
             setRenewType={setRenewType}
+            renewScope={renewScope}
+            setRenewScope={setRenewScope}
             onSaveProfile={(patch) => updateClient.mutate({ clientId: editingClient.id, data: patch })}
             onSaveTrainer={() => {
               setOrderError(null)
@@ -295,7 +299,7 @@ export function ClientsManagePage() {
             onRenew={() => {
               setOrderError(null)
               createCashOrder.mutate(
-                { clientId: editingClient.id, lines: [{ type: 'MEMBERSHIP_PURCHASE', meta: { membershipType: renewType } }] },
+                { clientId: editingClient.id, lines: [{ type: 'MEMBERSHIP_PURCHASE', meta: { membershipType: renewType, scope: renewScope } }] },
                 { onSuccess: setPendingOrder, onError: (err) => setOrderError(err instanceof ApiError ? err.message : 'Не удалось создать заказ') },
               )
             }}
@@ -317,7 +321,7 @@ export function ClientsManagePage() {
 }
 
 function EditClientForm({
-  client, draft, setDraft, trainers, pricing, renewType, setRenewType, onSaveProfile, onSaveTrainer, onRenew,
+  client, draft, setDraft, trainers, pricing, renewType, setRenewType, renewScope, setRenewScope, onSaveProfile, onSaveTrainer, onRenew,
   pendingOrder, onDismissPendingOrder, orderError,
   loginEmail, setLoginEmail, loginPassword, setLoginPassword, loginDone, onCreateLogin, loginPending,
 }: {
@@ -328,6 +332,8 @@ function EditClientForm({
   pricing: ReturnType<typeof usePricing>['data']
   renewType: MembershipType
   setRenewType: (m: MembershipType) => void
+  renewScope: MembershipScope
+  setRenewScope: (s: MembershipScope) => void
   onSaveProfile: (patch: { name?: string; gender?: Gender; phone?: string; email?: string }) => void
   onSaveTrainer: () => void
   onRenew: () => void
@@ -390,7 +396,8 @@ function EditClientForm({
         <div className="text-xs font-semibold uppercase tracking-wide text-[var(--text-faint)]">Абонемент</div>
         {client.membership && (
           <div className="text-sm text-[var(--text-muted)]">
-            Сейчас: {MEMBERSHIP_LABEL[client.membership.type]} · <Badge tone={STATUS_TONE[client.membership.status]}>{STATUS_LABEL[client.membership.status]}</Badge>
+            Сейчас: {MEMBERSHIP_LABEL[client.membership.type]}
+            {client.membership.scope === 'NETWORK' && ' · вся сеть'} · <Badge tone={STATUS_TONE[client.membership.status]}>{STATUS_LABEL[client.membership.status]}</Badge>
             {client.membership.expiresAt && ` до ${client.membership.expiresAt.slice(0, 10)}`}
           </div>
         )}
@@ -400,6 +407,12 @@ function EditClientForm({
             <option key={m} value={m}>{MEMBERSHIP_LABEL[m]} — {formatMoney(pricing[m.toLowerCase() as 'single' | 'monthly' | 'pack10' | 'pack20'])} ₽</option>
           ))}
         </select>
+        {pricing && pricing[`${renewType.toLowerCase() as 'single' | 'monthly' | 'pack10' | 'pack20'}Network`] != null && (
+          <label className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
+            <input type="checkbox" checked={renewScope === 'NETWORK'} onChange={(e) => setRenewScope(e.target.checked ? 'NETWORK' : 'SINGLE_GYM')} />
+            Оформить на всю сеть — {formatMoney(pricing[`${renewType.toLowerCase() as 'single' | 'monthly' | 'pack10' | 'pack20'}Network`]!)} ₽
+          </label>
+        )}
         <Button size="sm" onClick={onRenew}><RefreshCcw size={13} /> Продлить / оформить абонемент</Button>
       </div>
 
