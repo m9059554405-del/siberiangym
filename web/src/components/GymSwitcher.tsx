@@ -68,7 +68,8 @@ export function GymSwitcher() {
         </select>
         <button
           onClick={() => setCreateOpen(true)}
-          title="Добавить точку"
+          title="Добавить точку сети"
+          aria-label="Добавить точку сети"
           className="tap-scale flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-sunken)]"
         >
           <Plus size={15} />
@@ -87,9 +88,12 @@ export function GymSwitcher() {
             placeholder="Название точки"
             className="rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
           />
-          <Button onClick={submitCreate} disabled={!newName.trim() || createGym.isPending}>
-            <Plus size={14} /> Создать и перейти
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => setCreateOpen(false)}>Отмена</Button>
+            <Button className="flex-1" onClick={submitCreate} disabled={!newName.trim() || createGym.isPending}>
+              <Plus size={14} /> Создать и перейти
+            </Button>
+          </div>
         </div>
       </Modal>
     </>

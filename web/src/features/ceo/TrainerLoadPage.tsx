@@ -52,6 +52,7 @@ function AddStaffModal({ open, onClose }: { open: boolean; onClose: () => void }
         <div className="flex flex-col items-center gap-2 py-4 text-center">
           <Badge tone="success">Администратор создан ✓</Badge>
           <p className="text-sm text-[var(--text-muted)]">Логин и пароль можно передать сотруднику — доступ уже активен.</p>
+          <Button variant="secondary" onClick={() => { reset(); onClose() }}>Готово</Button>
         </div>
       ) : (
         <div className="flex flex-col gap-3">
@@ -64,9 +65,12 @@ function AddStaffModal({ open, onClose }: { open: boolean; onClose: () => void }
             className="rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm" />
           <input type="text" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Временный пароль (мин. 8 символов)"
             className="rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm" />
-          <Button onClick={submit} disabled={!name.trim() || !email.trim() || password.length < 8 || createStaff.isPending}>
-            <ShieldPlus size={14} /> Создать администратора
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => { reset(); onClose() }}>Отмена</Button>
+            <Button className="flex-1" onClick={submit} disabled={!name.trim() || !email.trim() || password.length < 8 || createStaff.isPending}>
+              <ShieldPlus size={14} /> Создать администратора
+            </Button>
+          </div>
         </div>
       )}
     </Modal>
@@ -130,6 +134,7 @@ function AddTrainerModal({ open, onClose }: { open: boolean; onClose: () => void
           <p className="text-sm text-[var(--text-muted)]">
             {loginEmail.trim() ? 'Логин и пароль можно передать тренеру — доступ уже активен.' : 'Доступ в приложение можно выдать позже из карточки тренера.'}
           </p>
+          <Button variant="secondary" onClick={() => { reset(); onClose() }}>Готово</Button>
         </div>
       ) : (
         <div className="flex flex-col gap-3">
@@ -186,12 +191,16 @@ function AddTrainerModal({ open, onClose }: { open: boolean; onClose: () => void
                 className="rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-2.5 py-2 text-sm" />
             </div>
           </div>
-          <Button
-            onClick={submit}
-            disabled={!name.trim() || !specialization.trim() || (!!loginEmail.trim() && loginPassword.length < 8) || createTrainer.isPending}
-          >
-            <Plus size={14} /> Создать тренера
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => { reset(); onClose() }}>Отмена</Button>
+            <Button
+              className="flex-1"
+              onClick={submit}
+              disabled={!name.trim() || !specialization.trim() || (!!loginEmail.trim() && loginPassword.length < 8) || createTrainer.isPending}
+            >
+              <Plus size={14} /> Создать тренера
+            </Button>
+          </div>
         </div>
       )}
     </Modal>
@@ -259,11 +268,11 @@ export function TrainerLoadPage() {
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
               <XAxis dataKey="name" fontSize={11} stroke="var(--text-faint)" tickFormatter={(v: string) => v.split(' ')[0]} />
               <YAxis fontSize={11} stroke="var(--text-faint)" allowDecimals={false} />
-              <Tooltip />
+              <Tooltip isAnimationActive={false} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="personal" name="Персонально" stackId="a" fill="var(--ceo-accent)" radius={[0, 0, 0, 0]} />
-              <Bar dataKey="group" name="Группы" stackId="a" fill="#3b82f6" />
-              <Bar dataKey="self" name="Самостоятельно" stackId="a" fill="#bfdbfe" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="personal" name="Персонально" stackId="a" fill="var(--ceo-accent)" isAnimationActive={false} />
+              <Bar dataKey="group" name="Группы" stackId="a" fill="#3b82f6" isAnimationActive={false} />
+              <Bar dataKey="self" name="Самостоятельно" stackId="a" fill="#bfdbfe" radius={[4, 4, 0, 0]} isAnimationActive={false} />
             </BarChart>
           </ResponsiveContainer>
         </div>
