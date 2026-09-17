@@ -22,7 +22,7 @@ export class WorkoutLogsController {
   @Roles(Role.CEO, Role.STAFF, Role.TRAINER)
   @Get('clients/:clientId/workout-logs')
   listForClient(@Param('clientId') clientId: string, @CurrentUser() user: JwtPayload) {
-    return this.workoutLogs.listForClient(user.gymId, clientId);
+    return this.workoutLogs.listForClient(user, clientId);
   }
 
   @Roles(Role.CLIENT)

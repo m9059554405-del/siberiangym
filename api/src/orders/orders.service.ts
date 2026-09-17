@@ -83,9 +83,13 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
   // создастся (P0.6), а не оставлено на усмотрение администратора.
   private async assertGuardianConsentsIfMinor(gymId: string, clientId: string): Promise<void> {
     const [client, gym] = await Promise.all([
-      this.prisma.client.findUniqueOrThrow({ where: { id: clientId }, select: { birthday: true } }),
+      // Чтение строго в рамках своей точки (P1.6): раньше birthday читался
+      // по голому id, и поведение проверки выдавало оракулом существование
+      // и возраст чужого для этой точки клиента.
+      this.prisma.client.findFirst({ where: { id: clientId, gymId }, select: { birthday: true } }),
       this.prisma.gym.findUniqueOrThrow({ where: { id: gymId }, select: { selfTrainingMinAge: true } }),
     ]);
+    if (!client) throw new NotFoundException('Клиент не найден');
     if (!computeIsMinor(client.birthday, gym.selfTrainingMinAge)) return;
 
     const guardianLinks = await this.prisma.guardianChild.findMany({ where: { clientId }, select: { guardianId: true } });

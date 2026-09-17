@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { LogWorkoutDto } from './dto/log-workout.dto';
+import { assertCanViewClientData } from '../clients/client-access.util';
 import type { JwtPayload } from '../auth/auth.service';
 
 function parseKg(load: string): number | null {
@@ -68,9 +69,14 @@ export class WorkoutLogsService {
     });
   }
 
-  async listForClient(gymId: string, clientId: string) {
+  // Логи конкретного клиента — только своей точки для CEO/STAFF и только
+  // своего подопечного для тренера (P1.6): trainerId читается в моменте,
+  // поэтому при переназначении клиента доступ старого тренера закрывается
+  // сразу.
+  async listForClient(actor: JwtPayload, clientId: string) {
+    await assertCanViewClientData(this.prisma, actor, clientId);
     return this.prisma.workoutLogEntry.findMany({
-      where: { clientId, client: { gymId } },
+      where: { clientId, client: { gymId: actor.gymId } },
       include: { exercises: { include: { sets: true } } },
       orderBy: { date: 'desc' },
     });
@@ -79,7 +85,7 @@ export class WorkoutLogsService {
   async listOwn(actor: JwtPayload) {
     const client = await this.prisma.client.findUnique({ where: { userId: actor.sub } });
     if (!client) throw new ForbiddenException('У пользователя нет карточки клиента');
-    return this.listForClient(actor.gymId, client.id);
+    return this.listForClient(actor, client.id);
   }
 
   async log(actor: JwtPayload, dto: LogWorkoutDto) {

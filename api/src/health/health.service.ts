@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AddCycleLogDto, AddMeasurementDto, AddProgressPhotoDto } from './dto/health.dto';
+import { assertCanViewClientData } from '../clients/client-access.util';
 import type { JwtPayload } from '../auth/auth.service';
 
 // Все self-service методы этого сервиса действуют строго от лица
@@ -15,13 +16,21 @@ async function resolveOwnClientId(prisma: PrismaService, actor: JwtPayload): Pro
 export class HealthService {
   constructor(private readonly prisma: PrismaService) {}
 
-  listProgressPhotos(clientId: string) {
+  // Данные конкретного клиента по id — только после авторизации P1.6
+  // (своя точка для CEO/STAFF, свой подопечный для тренера): замеры и фото
+  // прогресса — чувствительные данные, раньше роут отдавал их по одному id.
+  private listClientProgressPhotos(clientId: string) {
     return this.prisma.progressPhoto.findMany({ where: { clientId }, orderBy: { date: 'desc' } });
+  }
+
+  async listProgressPhotos(actor: JwtPayload, clientId: string) {
+    await assertCanViewClientData(this.prisma, actor, clientId);
+    return this.listClientProgressPhotos(clientId);
   }
 
   async listOwnProgressPhotos(actor: JwtPayload) {
     const clientId = await resolveOwnClientId(this.prisma, actor);
-    return this.listProgressPhotos(clientId);
+    return this.listClientProgressPhotos(clientId);
   }
 
   async addProgressPhoto(actor: JwtPayload, dto: AddProgressPhotoDto) {
@@ -29,13 +38,18 @@ export class HealthService {
     return this.prisma.progressPhoto.create({ data: { clientId, ...dto } });
   }
 
-  listMeasurements(clientId: string) {
+  private listClientMeasurements(clientId: string) {
     return this.prisma.measurement.findMany({ where: { clientId }, orderBy: { date: 'asc' } });
+  }
+
+  async listMeasurements(actor: JwtPayload, clientId: string) {
+    await assertCanViewClientData(this.prisma, actor, clientId);
+    return this.listClientMeasurements(clientId);
   }
 
   async listOwnMeasurements(actor: JwtPayload) {
     const clientId = await resolveOwnClientId(this.prisma, actor);
-    return this.listMeasurements(clientId);
+    return this.listClientMeasurements(clientId);
   }
 
   async addMeasurement(actor: JwtPayload, dto: AddMeasurementDto) {

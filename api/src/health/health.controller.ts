@@ -15,8 +15,8 @@ export class HealthController {
 
   @Roles(Role.CEO, Role.STAFF, Role.TRAINER)
   @Get('clients/:clientId/progress-photos')
-  listProgressPhotos(@Param('clientId') clientId: string) {
-    return this.health.listProgressPhotos(clientId);
+  listProgressPhotos(@Param('clientId') clientId: string, @CurrentUser() user: JwtPayload) {
+    return this.health.listProgressPhotos(user, clientId);
   }
 
   @Roles(Role.CLIENT)
@@ -33,8 +33,8 @@ export class HealthController {
 
   @Roles(Role.CEO, Role.STAFF, Role.TRAINER)
   @Get('clients/:clientId/measurements')
-  listMeasurements(@Param('clientId') clientId: string) {
-    return this.health.listMeasurements(clientId);
+  listMeasurements(@Param('clientId') clientId: string, @CurrentUser() user: JwtPayload) {
+    return this.health.listMeasurements(user, clientId);
   }
 
   @Roles(Role.CLIENT)
