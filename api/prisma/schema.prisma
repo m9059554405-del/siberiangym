@@ -12,12 +12,38 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// --- Арендатор (зал) ---
+// --- Сеть залов (P1.1) ---
+// Отдельный уровень группировки НАД Gym, не путать с мультиарендностью
+// gymId (заложена с 0.1.0 под сценарий «продать копию системы другому
+// владельцу» — один CEO = один изолированный тенант). Здесь наоборот: один
+// CEO управляет несколькими залами-площадками (Gym) в рамках одной сети,
+// и данные каждой точки при этом продолжают жить в своих gymId-таблицах —
+// P1.2–P1.8 описывают, что именно на уровне сети, а что остаётся на
+// уровне точки, по одному аспекту за раз (абонемент, тренер, отчётность,
+// физические сущности). `ownerId` намеренно единичный, не список — P1.10
+// отдельно фиксирует множественность CEO/совладельцев как нерешённый
+// вопрос, не смешивается с этим пунктом.
+model Network {
+  id        String   @id @default(cuid())
+  ownerId   String   @unique @map("owner_id")
+  owner     User     @relation(fields: [ownerId], references: [id])
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  gyms Gym[]
+
+  @@map("networks")
+}
+
+// --- Арендатор (зал/точка) ---
 // Один зал сейчас (SiberianGym), но у каждой таблицы ниже есть gymId —
 // это значит, что добавить второй зал в будущем = создать новую строку Gym,
-// а не переделывать структуру базы.
+// а не переделывать структуру базы. С P1.1 каждый Gym обязательно
+// принадлежит ровно одной Network — даже единственный сегодняшний зал.
 model Gym {
   id        String   @id @default(cuid())
+  networkId String   @map("network_id")
+  network   Network  @relation(fields: [networkId], references: [id])
   name      String
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -84,6 +110,11 @@ model User {
 
   clientProfile  Client?
   trainerProfile Trainer?
+  // Обратная связь на Network.owner (P1.1) — заполнена только у CEO,
+  // который реально владеет сетью; необязательная, т.к. не у каждого
+  // User есть своя сеть (Prisma требует обратное поле для однозначной
+  // связи 1:1, даже когда оно nullable на этой стороне).
+  ownedNetwork Network?
 
   @@index([gymId])
   @@map("users")

@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Outlet, useNavigate } from 'react-router-dom'
 import { Briefcase, Dumbbell, LogOut, ShieldCheck, UserRound, Users } from 'lucide-react'
 import { useAuthStore, type Role } from '../store/useAuthStore'
+import { GymSwitcher } from '../components/GymSwitcher'
 
 const ROLE_LABEL: Record<Role, { label: string; icon: typeof UserRound }> = {
   CLIENT: { label: 'Клиент', icon: UserRound },
@@ -47,6 +48,7 @@ export function RootLayout() {
           </div>
 
           <div className="ml-auto flex items-center gap-2">
+            {user.role === 'CEO' && <GymSwitcher />}
             <span className="text-xs text-[var(--text-faint)]">{user.email}</span>
             <button
               onClick={() => {

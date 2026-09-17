@@ -2,6 +2,7 @@ import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { CreateUserDto } from './dto/create-user.dto';
+import { SwitchGymDto } from './dto/switch-gym.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { Roles } from './decorators/roles.decorator';
@@ -16,6 +17,14 @@ export class AuthController {
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.auth.login(dto.email, dto.password);
+  }
+
+  // Смена активной точки сети (P1.1) — CEO переключается между Gym одной Network.
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.CEO)
+  @Post('switch-gym')
+  switchGym(@Body() dto: SwitchGymDto, @CurrentUser() actor: JwtPayload) {
+    return this.auth.switchGym(actor, dto.gymId);
   }
 
   // Заводить новые учётные записи (тренер/администратор/CEO) может только CEO.

@@ -27,6 +27,7 @@ import { RefundsModule } from './refunds/refunds.module';
 import { ConsentsModule } from './consents/consents.module';
 import { StorageModule } from './storage/storage.module';
 import { GuardiansModule } from './guardians/guardians.module';
+import { GymsModule } from './gyms/gyms.module';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { GuardiansModule } from './guardians/guardians.module';
     ConsentsModule,
     StorageModule,
     GuardiansModule,
+    GymsModule,
   ],
 })
 export class AppModule {}

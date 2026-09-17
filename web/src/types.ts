@@ -374,6 +374,13 @@ export interface CycleLog {
   date: string
 }
 
+export interface Gym {
+  id: string
+  name: string
+  selfTrainingMinAge: number
+  createdAt: string
+}
+
 export interface DirectorMessage {
   id: string
   clientId: string

@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
@@ -37,6 +37,32 @@ export class AuthService {
     return {
       accessToken: this.jwt.sign(payload),
       user: { id: user.id, email: user.email, role: user.role, gymId: user.gymId },
+    };
+  }
+
+  // Смена активной точки сети (P1.1) — CEO переключается между Gym одной
+  // Network без повторного входа по паролю. Новый токен несёт другой
+  // gymId, но того же sub/role — все существующие эндпоинты продолжают
+  // работать без изменений, потому что везде читают gymId из токена
+  // (JwtStrategy.validate просто возвращает payload как есть), а не из
+  // базы: смена точки — это по сути смена "текущего контекста", а не
+  // отдельная сессия.
+  async switchGym(actor: JwtPayload, targetGymId: string) {
+    if (actor.role !== Role.CEO) throw new ForbiddenException('Смена точки доступна только CEO');
+    const currentGym = await this.prisma.gym.findUniqueOrThrow({ where: { id: actor.gymId }, select: { networkId: true } });
+    const network = await this.prisma.network.findUnique({ where: { id: currentGym.networkId } });
+    if (!network || network.ownerId !== actor.sub) {
+      throw new ForbiddenException('Вы не являетесь владельцем сети');
+    }
+    const targetGym = await this.prisma.gym.findUnique({ where: { id: targetGymId } });
+    if (!targetGym || targetGym.networkId !== network.id) {
+      throw new NotFoundException('Точка не найдена в вашей сети');
+    }
+    const payload: JwtPayload = { sub: actor.sub, gymId: targetGym.id, role: actor.role };
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: actor.sub }, select: { email: true } });
+    return {
+      accessToken: this.jwt.sign(payload),
+      user: { id: actor.sub, email: user.email, role: actor.role, gymId: targetGym.id },
     };
   }
 
