@@ -5,6 +5,7 @@ import { CreateGroupClassDto } from './dto/create-group-class.dto';
 import { CreatePersonalSlotDto } from './dto/create-personal-slot.dto';
 import type { JwtPayload } from '../auth/auth.service';
 import { SlotStatus } from '@prisma/client';
+import { TrainersService } from '../trainers/trainers.service';
 
 // Резолвит clientId для self-service действий: клиент может действовать
 // только от своего имени, CEO/STAFF должны явно передать clientId.
@@ -23,21 +24,32 @@ export class ScheduleService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly activityLog: ActivityLogService,
+    private readonly trainers: TrainersService,
   ) {}
+
+  // Тренер на нескольких точках сети (P1.3) должен видеть свой календарь
+  // целиком, без переключения точки — остальным ролям (клиент, STAFF, CEO)
+  // список остаётся строго про их текущую точку по токену, как и раньше.
+  private async gymIdsForActor(actor: JwtPayload): Promise<string[]> {
+    if (actor.role !== 'TRAINER') return [actor.gymId];
+    const trainer = await this.prisma.trainer.findUnique({ where: { userId: actor.sub }, include: { additionalGyms: true } });
+    if (!trainer) return [actor.gymId];
+    return [trainer.gymId, ...trainer.additionalGyms.map((g) => g.gymId)];
+  }
 
   // --- Групповые занятия ---
 
-  listGroupClasses(gymId: string) {
+  async listGroupClasses(actor: JwtPayload) {
+    const gymIds = await this.gymIdsForActor(actor);
     return this.prisma.groupClass.findMany({
-      where: { gymId },
+      where: { gymId: { in: gymIds } },
       include: { trainer: true, bookings: true },
       orderBy: [{ date: 'asc' }, { start: 'asc' }],
     });
   }
 
   async createGroupClass(actor: JwtPayload, dto: CreateGroupClassDto) {
-    const trainer = await this.prisma.trainer.findFirst({ where: { id: dto.trainerId, gymId: actor.gymId } });
-    if (!trainer) throw new NotFoundException('Тренер не найден');
+    const trainer = await this.trainers.assertTrainerAtGym(dto.trainerId, actor.gymId);
     const gc = await this.prisma.groupClass.create({
       data: { gymId: actor.gymId, ...dto, date: new Date(dto.date) },
     });
@@ -58,17 +70,17 @@ export class ScheduleService {
 
   // --- Персональные слоты ---
 
-  listPersonalSlots(gymId: string) {
+  async listPersonalSlots(actor: JwtPayload) {
+    const gymIds = await this.gymIdsForActor(actor);
     return this.prisma.personalSlot.findMany({
-      where: { gymId },
+      where: { gymId: { in: gymIds } },
       include: { trainer: true, client: true },
       orderBy: [{ date: 'asc' }, { start: 'asc' }],
     });
   }
 
   async createPersonalSlot(actor: JwtPayload, dto: CreatePersonalSlotDto) {
-    const trainer = await this.prisma.trainer.findFirst({ where: { id: dto.trainerId, gymId: actor.gymId } });
-    if (!trainer) throw new NotFoundException('Тренер не найден');
+    await this.trainers.assertTrainerAtGym(dto.trainerId, actor.gymId);
     return this.prisma.personalSlot.create({
       data: { gymId: actor.gymId, trainerId: dto.trainerId, date: new Date(dto.date), start: dto.start, end: dto.end, status: 'FREE' },
     });

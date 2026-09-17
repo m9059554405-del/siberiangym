@@ -1,6 +1,32 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
-import type { DirectorMessage, MembershipPricing, OfferAudience, TransactionCategory, WorkoutLogEntry } from '../types'
+import type { DirectorMessage, Gym, MembershipPricing, OfferAudience, TransactionCategory, WorkoutLogEntry } from '../types'
+
+// Точки сети, на которых работает тренер (P1.3) — домашняя (создана там)
+// плюс дополнительные, назначенные CEO.
+export function useTrainerGyms(trainerId: string | undefined) {
+  return useQuery({
+    queryKey: ['trainers', trainerId, 'gyms'],
+    queryFn: () => api.get<{ homeGymId: string; additional: Gym[] }>(`/trainers/${trainerId}/gyms`),
+    enabled: !!trainerId,
+  })
+}
+
+export function useAssignTrainerGym(trainerId: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (gymId: string) => api.post(`/trainers/${trainerId}/gyms`, { gymId }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['trainers', trainerId, 'gyms'] }),
+  })
+}
+
+export function useUnassignTrainerGym(trainerId: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (gymId: string) => api.post(`/trainers/${trainerId}/gyms/${gymId}/unassign`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['trainers', trainerId, 'gyms'] }),
+  })
+}
 
 // Изменение цен точки (P1.2) — раньше не было ни одного эндпоинта для
 // этого, только seed-скрипт при первом развёртывании. Частичный PATCH:

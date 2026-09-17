@@ -16,7 +16,7 @@ export class ScheduleController {
 
   @Get('group-classes')
   listGroupClasses(@CurrentUser() user: JwtPayload) {
-    return this.schedule.listGroupClasses(user.gymId);
+    return this.schedule.listGroupClasses(user);
   }
 
   @Roles(Role.CEO, Role.STAFF)
@@ -33,7 +33,7 @@ export class ScheduleController {
 
   @Get('personal-slots')
   listPersonalSlots(@CurrentUser() user: JwtPayload) {
-    return this.schedule.listPersonalSlots(user.gymId);
+    return this.schedule.listPersonalSlots(user);
   }
 
   @Roles(Role.CEO, Role.STAFF, Role.TRAINER)

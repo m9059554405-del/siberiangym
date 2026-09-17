@@ -48,4 +48,23 @@ export class TrainersController {
   createLogin(@Param('id') id: string, @Body() dto: CreateLoginDto, @CurrentUser() user: JwtPayload) {
     return this.trainers.createLogin(user, id, dto);
   }
+
+  // Точки сети, на которых работает тренер (P1.3) — только CEO.
+  @Roles(Role.CEO)
+  @Get(':id/gyms')
+  listGyms(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.trainers.listGyms(user, id);
+  }
+
+  @Roles(Role.CEO)
+  @Post(':id/gyms')
+  assignToGym(@Param('id') id: string, @Body('gymId') gymId: string, @CurrentUser() user: JwtPayload) {
+    return this.trainers.assignToGym(user, id, gymId);
+  }
+
+  @Roles(Role.CEO)
+  @Post(':id/gyms/:gymId/unassign')
+  unassignFromGym(@Param('id') id: string, @Param('gymId') gymId: string, @CurrentUser() user: JwtPayload) {
+    return this.trainers.unassignFromGym(user, id, gymId);
+  }
 }

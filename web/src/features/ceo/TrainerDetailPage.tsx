@@ -1,18 +1,69 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Building2, Plus, X } from 'lucide-react'
 import { useTrainers } from '../../hooks/useClientApi'
 import { useAllClients } from '../../hooks/useStaffApi'
-import { useAllWorkoutLogs, useTransactions } from '../../hooks/useCeoApi'
+import { useAllWorkoutLogs, useAssignTrainerGym, useTransactions, useTrainerGyms, useUnassignTrainerGym } from '../../hooks/useCeoApi'
+import { useNetworkGyms } from '../../hooks/useGymsApi'
 import { tariffById } from '../../data/tariffs'
 import { Avatar } from '../../components/ui/Avatar'
-import { Badge, Card, EmptyState, SectionTitle, StatTile } from '../../components/ui/Primitives'
+import { Badge, Button, Card, EmptyState, SectionTitle, StatTile } from '../../components/ui/Primitives'
 import { formatMoney, getInitials } from '../../lib/format'
 import type { ClientFormat, MembershipStatus } from '../../types'
 
 const FORMAT_LABEL: Record<ClientFormat, string> = { PERSONAL: 'Персонально', GROUP: 'Группа', SELF: 'Самостоятельно' }
 const STATUS_TONE: Record<MembershipStatus, 'success' | 'warning' | 'danger'> = { ACTIVE: 'success', FROZEN: 'warning', EXPIRED: 'danger' }
 const STATUS_LABEL: Record<MembershipStatus, string> = { ACTIVE: 'Активен', FROZEN: 'Заморожен', EXPIRED: 'Истёк' }
+
+// Точки сети, на которых работает тренер (P1.3) — домашняя (где заведена
+// карточка) плюс любое число дополнительных, назначенных здесь. Список
+// доступных для назначения — вся сеть CEO, за вычетом уже назначенных.
+function TrainerGymsSection({ trainerId }: { trainerId: string }) {
+  const { data } = useTrainerGyms(trainerId)
+  const { data: networkGyms } = useNetworkGyms()
+  const assign = useAssignTrainerGym(trainerId)
+  const unassign = useUnassignTrainerGym(trainerId)
+  const [selected, setSelected] = useState('')
+
+  if (!data) return null
+
+  const assignedIds = new Set([data.homeGymId, ...data.additional.map((g) => g.id)])
+  const available = (networkGyms ?? []).filter((g) => !assignedIds.has(g.id))
+  const homeGym = (networkGyms ?? []).find((g) => g.id === data.homeGymId)
+
+  return (
+    <Card>
+      <SectionTitle title="Точки сети" subtitle="Где тренер ведёт занятия (P1.3)" />
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between rounded-lg bg-[var(--surface-sunken)] px-3 py-2 text-sm">
+          <span className="flex items-center gap-1.5"><Building2 size={14} /> {homeGym?.name ?? 'Домашняя точка'}</span>
+          <Badge tone="accent">домашняя</Badge>
+        </div>
+        {data.additional.map((g) => (
+          <div key={g.id} className="flex items-center justify-between rounded-lg bg-[var(--surface-sunken)] px-3 py-2 text-sm">
+            <span className="flex items-center gap-1.5"><Building2 size={14} /> {g.name}</span>
+            <Button size="sm" variant="ghost" onClick={() => unassign.mutate(g.id)} disabled={unassign.isPending}>
+              <X size={13} /> Снять
+            </Button>
+          </div>
+        ))}
+        {available.length > 0 && (
+          <div className="flex gap-2 pt-1">
+            <select value={selected} onChange={(e) => setSelected(e.target.value)}
+              className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-2.5 py-2 text-sm">
+              <option value="">Выбрать точку…</option>
+              {available.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
+            <Button size="sm" variant="secondary" disabled={!selected || assign.isPending}
+              onClick={() => { assign.mutate(selected); setSelected('') }}>
+              <Plus size={14} /> Добавить
+            </Button>
+          </div>
+        )}
+      </div>
+    </Card>
+  )
+}
 
 export function TrainerDetailPage() {
   const { trainerId } = useParams()
@@ -54,6 +105,8 @@ export function TrainerDetailPage() {
         <StatTile label="Выручка от тренера" value={`${formatMoney(totalRevenue)} ₽`} />
         <StatTile label="Платежей" value={payments.length} />
       </div>
+
+      <TrainerGymsSection trainerId={trainer.id} />
 
       <Card>
         <SectionTitle title="Подопечные и результаты" subtitle="Формат, тариф, статус абонемента, выполнение программы" />

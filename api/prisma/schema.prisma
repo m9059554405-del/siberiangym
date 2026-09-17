@@ -88,6 +88,7 @@ model Gym {
   refunds            Refund[]
   consentRecords     ConsentRecord[]
   guardians          Guardian[]
+  trainerGyms        TrainerGym[]
 
   @@map("gyms")
 }
@@ -285,11 +286,31 @@ model Trainer {
   groupClasses      GroupClass[]
   personalSlots     PersonalSlot[]
   transactions      Transaction[]
+  // Дополнительные точки сети, где тренер тоже ведёт занятия (P1.3) —
+  // `gymId` выше остаётся "домашней" точкой (где заведена карточка и
+  // логин), эта связь — только для точек СВЕРХ неё. Тренер без единой
+  // записи здесь всё равно работает как раньше (только на своей точке).
+  additionalGyms TrainerGym[]
 
   createdAt DateTime @default(now()) @map("created_at")
 
   @@index([gymId])
   @@map("trainers")
+}
+
+// Многие-ко-многим Trainer<->Gym сверх домашней точки (P1.3) — CEO
+// назначает тренера на дополнительные залы своей сети, персональные
+// слоты/групповые занятия на этих точках создаются на общих основаниях.
+model TrainerGym {
+  id        String  @id @default(cuid())
+  trainerId String  @map("trainer_id")
+  trainer   Trainer @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  gymId     String  @map("gym_id")
+  gym       Gym     @relation(fields: [gymId], references: [id], onDelete: Cascade)
+
+  @@unique([trainerId, gymId])
+  @@index([gymId])
+  @@map("trainer_gyms")
 }
 
 model TrainerWorkHour {
