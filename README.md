@@ -115,6 +115,21 @@ S3-совместимом объектном хранилище — в БД ос
 Это моя рекомендация по направлению поиска, а не готовое решение — цены и
 тарифы стоит свериться перед оплатой, сам аккаунт и оплату я не оформляю.
 
+## Индекс структуры кода
+
+`scripts/code_structure.py` строит компактный индекс Python/TypeScript/JavaScript:
+классы, функции, методы, сигнатуры, docstring/JSDoc и точные диапазоны строк без тел.
+
+```bash
+python scripts/code_structure.py . --include-docs -o structure.md
+python scripts/code_structure.py api/src --format json -o structure.json
+python scripts/code_structure.py api/src --symbol AuthService.login
+```
+
+Последняя команда точечно выводит тело найденного символа. Каталоги `.git`,
+`node_modules`, `dist`, `build`, виртуальные окружения и кэш исключаются автоматически;
+дополнительные каталоги исключаются повторяемым параметром `--exclude`.
+
 ## Статус разработки
 
 См. [CHANGELOG.md](./CHANGELOG.md).
