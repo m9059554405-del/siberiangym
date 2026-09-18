@@ -83,6 +83,21 @@ services:
       S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
       S3_PUBLIC_URL: ${S3_PUBLIC_URL:-}
 
+  monitor:
+    image: alpine:3.20
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      MONITOR_HEALTH_URL: http://api:3000/api/health
+      MONITOR_MIN_FREE_PERCENT: ${MONITOR_MIN_FREE_PERCENT:-15}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+    volumes:
+      - ./scripts/monitor-siberiangym.sh:/monitor-siberiangym.sh:ro
+      - monitor_state:/var/lib/siberiangym-monitor
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["apk add --no-cache bash curl coreutils >/dev/null && while true; do /bin/bash /monitor-siberiangym.sh; sleep 60; done"]
+
   web:
     build: ./web
     restart: unless-stopped
@@ -115,3 +130,4 @@ volumes:
   siberiangym_pg_data:
   caddy_data:
   caddy_config:
+  monitor_state:

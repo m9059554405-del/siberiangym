@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AddCycleLogDto, AddMeasurementDto, AddProgressPhotoDto } from './dto/health.dto';
 import { assertCanViewClientData } from '../clients/client-access.util';
@@ -15,6 +15,16 @@ async function resolveOwnClientId(prisma: PrismaService, actor: JwtPayload): Pro
 @Injectable()
 export class HealthService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async healthcheck() {
+    const startedAt = Date.now();
+    try {
+      await this.prisma.$queryRaw`SELECT 1`;
+      return { status: 'ok', database: 'ok', latencyMs: Date.now() - startedAt, timestamp: new Date().toISOString() };
+    } catch {
+      throw new ServiceUnavailableException('База данных недоступна');
+    }
+  }
 
   // Данные конкретного клиента по id — только после авторизации P1.6
   // (своя точка для CEO/STAFF, свой подопечный для тренера): замеры и фото

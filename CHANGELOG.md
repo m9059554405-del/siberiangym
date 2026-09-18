@@ -3,6 +3,23 @@
 Все значимые изменения проекта фиксируются в этом файле.
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.0.0/).
 
+## [0.60.0] — 2026-09-18
+
+[P3.7] Мониторинг и алерты.
+
+### Добавлено
+- Публичный `GET /api/health`: проверяет соединение с PostgreSQL, возвращает `status`, состояние БД, latency и timestamp; при проблеме отдаёт ошибку сервиса.
+- Production monitor-контейнер: каждые 60 секунд проверяет health API, состояние контейнера API и свободное место на диске; повторные одинаковые алерты подавляются state-файлами.
+- Опциональный webhook через `ALERT_WEBHOOK_URL`; порог диска настраивается `MONITOR_MIN_FREE_PERCENT` (по умолчанию 15%).
+- Инструкция и production env-переменные для эксплуатации мониторинга.
+
+### Проверено
+- `npm run build` в `api` зелёный.
+- `npm test` в `api`: 9 suites, 89 tests зелёные.
+- `npm run test:e2e` в `api`: 3 tests зелёные.
+- `npm run build` в `web` зелёный на предыдущем изменении; `npm run lint` недоступен из-за optional native binding oxlint.
+- Полный внешний uptime/live webhook сценарий требует production/staging URL и не выполнялся в текущей среде.
+
 ## [0.59.0] — 2026-09-18
 
 [P3.6] 2FA для CEO/STAFF.

@@ -8,6 +8,16 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { JwtPayload } from '../auth/auth.service';
 
+@Controller()
+export class PublicHealthController {
+  constructor(private readonly health: HealthService) {}
+
+  @Get('health')
+  healthcheck() {
+    return this.health.healthcheck();
+  }
+}
+
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller()
 export class HealthController {
