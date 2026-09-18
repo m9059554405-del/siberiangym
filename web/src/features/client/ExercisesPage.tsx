@@ -35,6 +35,9 @@ export function ExercisesPage() {
   if (!client || !exercises) return null
 
   const days = program?.days ?? []
+  const completedLabels = useMemo(() => new Set(myLogs.filter((l) => l.status === 'COMPLETED').map((l) => l.dayLabel)), [myLogs])
+  const visibleDays = days.map((day, dayIndex) => ({ day, dayIndex })).filter(({ day }) => !completedLabels.has(day.label))
+  const completedLogs = myLogs.filter((l) => l.status === 'COMPLETED')
 
   function saveDays(nextDays: { label: string; order: number; entries: { exerciseId: string; sets: number; reps: string; load: string; order: number }[] }[]) {
     saveProgram.mutate(nextDays)
@@ -121,8 +124,9 @@ export function ExercisesPage() {
           )}
 
           {days.length === 0 && <EmptyState title="Программа ещё не составлена" subtitle={isSelf ? 'Добавьте первый день тренировок' : 'Дождитесь, пока тренер составит программу'} />}
+          {days.length > 0 && visibleDays.length === 0 && <EmptyState title="Все запланированные тренировки выполнены" subtitle="Выполненные тренировки — во вкладке «Библиотека»" />}
 
-          {days.map((day, dayIndex) => (
+          {visibleDays.map(({ day, dayIndex }) => (
             <Card key={day.id || dayIndex}>
               <div className="mb-2 flex items-center justify-between">
                 <h3 className="font-semibold">{day.label}</h3>
@@ -191,6 +195,34 @@ export function ExercisesPage() {
 
       {tab === 'library' && (
         <div className="flex flex-col gap-3">
+          {completedLogs.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <h2 className="text-sm font-semibold">Выполненные тренировки · {completedLogs.length}</h2>
+              {completedLogs.map((log) => (
+                <Card key={log.id} className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-sm font-semibold">{log.dayLabel}</span>{' '}
+                      <span className="text-xs text-[var(--text-faint)]">{log.date.slice(0, 10)}</span>
+                    </div>
+                    <Badge tone="success">Выполнено</Badge>
+                  </div>
+                  {log.exercises.map((e, i) => {
+                    const ex = exerciseById.get(e.exerciseId)
+                    if (!ex) return null
+                    return (
+                      <div key={i} className="rounded-lg bg-[var(--surface-sunken)] px-3 py-2 text-sm">
+                        {ex.name}{' '}
+                        <span className="text-xs text-[var(--text-faint)]">
+                          · {e.sets.map((s) => `${s.reps} × ${s.load}`).join(', ')}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </Card>
+              ))}
+            </div>
+          )}
           <div className="flex flex-wrap gap-1.5">
             <button
               onClick={() => setMuscleFilter('all')}

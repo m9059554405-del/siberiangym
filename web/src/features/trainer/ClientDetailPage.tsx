@@ -89,6 +89,8 @@ export function ClientDetailPage() {
 
   const hasCoaching = tariffUnlocksCoaching(client.tariff)
   const days = program?.days ?? []
+  const completedLabels = useMemo(() => new Set((logs ?? []).filter((l) => l.status === 'COMPLETED').map((l) => l.dayLabel)), [logs])
+  const visibleDays = days.map((day, dayIndex) => ({ day, dayIndex })).filter(({ day }) => !completedLabels.has(day.label))
 
   function toPayload(list: ProgramDay[]) {
     return list.map((d, i) => ({
@@ -191,7 +193,10 @@ export function ClientDetailPage() {
           </div>
         )}
         <div className="flex flex-col gap-3">
-          {days.map((day, dayIndex) => (
+          {days.length > 0 && visibleDays.length === 0 && (
+            <p className="text-xs text-[var(--text-faint)]">Все запланированные тренировки выполнены — см. историю тренировок ниже</p>
+          )}
+          {visibleDays.map(({ day, dayIndex }) => (
             <div key={day.id || dayIndex} className="rounded-xl border border-[var(--border)] p-3">
               <div className="mb-2 flex items-center justify-between">
                 <h4 className="text-sm font-semibold">{day.label}</h4>
