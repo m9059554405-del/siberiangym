@@ -1,23 +1,35 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { json } from 'express';
 import { AppModule } from './app.module';
+import { GlobalExceptionFilter } from './common/global-exception.filter';
+
+const logger = new Logger('Bootstrap');
+
+// P3.22: процесс не должен падать «молча». unhandledRejection/uncaughtException
+// логируются со стеком до того, как отдать процесс менеджеру (сейчас —
+// Docker restart, с P3.18 — PM2): причина падения остаётся в логах.
+process.on('unhandledRejection', (reason) => {
+  const err = reason instanceof Error ? reason : new Error(String(reason));
+  logger.error(`unhandledRejection: ${err.message}`, err.stack);
+});
+process.on('uncaughtException', (err) => {
+  logger.error(`uncaughtException: ${err.message}`, err.stack);
+  // Даём Logger достать сообщение в stdout, затем перезапускаемся —
+  // состояние процесса после uncaughtException неопределённое (Node docs).
+  setTimeout(() => process.exit(1), 100);
+});
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.enableCors();
   app.getHttpAdapter().getInstance().set('trust proxy', 1);
-  // Фото теперь идут через multipart (POST /uploads/photo, см. P0.5), а не
-  // как data URL в JSON-теле — дефолт body-parser (100kb) здесь больше не
-  // проблема сам по себе, но явный лимит стоит задать в любом случае, а не
-  // полагаться на неявный дефолт библиотеки. 1mb с запасом покрывает любые
-  // обычные JSON-запросы приложения (ни один из них не содержит файлов).
   app.use(json({ limit: '1mb' }));
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  app.useGlobalFilters(new GlobalExceptionFilter());
   app.setGlobalPrefix('api');
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
-  // eslint-disable-next-line no-console
-  console.log(`SiberianGym API запущен: http://localhost:${port}/api`);
+  logger.log(`SiberianGym API запущен: http://localhost:${port}/api`);
 }
 bootstrap();
