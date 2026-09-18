@@ -13,7 +13,7 @@ import type { JwtPayload } from '../auth/auth.service';
 export class LockersController {
   constructor(private readonly lockers: LockersService) {}
 
-  @Roles(Role.CEO, Role.STAFF, Role.TRAINER)
+  @Roles(Role.CEO, Role.STAFF, Role.TRAINER, Role.CLIENT)
   @Get()
   findAll(@CurrentUser() user: JwtPayload) {
     return this.lockers.findAll(user.gymId);
@@ -42,7 +42,7 @@ export class LockersController {
     return this.lockers.doorState(user, dto.controllerId, dto.channel, dto.state);
   }
 
-  @Roles(Role.CEO, Role.STAFF)
+  @Roles(Role.CEO, Role.STAFF, Role.CLIENT)
   @Post(':id/release')
   release(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     return this.lockers.release(user, id);

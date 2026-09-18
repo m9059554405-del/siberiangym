@@ -1,11 +1,11 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActivityLogService } from '../activity-log/activity-log.service';
 import { GymsService } from '../gyms/gyms.service';
 import { CHECKIN_CODE_PREFIX } from '../checkins/checkins.service';
 import { LockerControllerDriver } from './locker-controller.driver';
 import type { JwtPayload } from '../auth/auth.service';
-import type { Locker } from '@prisma/client';
+import { Role, type Locker } from '@prisma/client';
 
 // Киоск централизованного управления шкафчиками (P2.8). Один терминал со
 // сканером QR на раздевалку/ряд: скан назначает свободный шкафчик или
@@ -33,9 +33,16 @@ export class LockersService {
 
   // Освобождение вручную администратором (0.4.0) — работает в любом
   // режиме точки: разблокировать застрявшую аренду должен уметь персонал.
+  // Клиент (P2.4, вкладка «Магазин») освобождает только собственную аренду.
   async release(actor: JwtPayload, lockerId: string) {
     const locker = await this.prisma.locker.findFirst({ where: { id: lockerId, gymId: actor.gymId } });
     if (!locker) throw new NotFoundException('Шкафчик не найден');
+    if (actor.role === Role.CLIENT) {
+      const client = await this.prisma.client.findUnique({ where: { userId: actor.sub } });
+      if (!client || locker.rentedBy !== client.id) {
+        throw new ForbiddenException('Клиент может освободить только собственную аренду шкафчика');
+      }
+    }
     return this.prisma.locker.update({ where: { id: lockerId }, data: { status: 'FREE', rentedBy: null, rentedUntil: null, assignedAt: null } });
   }
 
