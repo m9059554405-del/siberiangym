@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { CheckCircle2, MinusCircle, PlusCircle, XCircle } from 'lucide-react'
 import { useExercises, useMe, useOwnWorkoutLogs, useProgram, useSaveOwnProgram } from '../../hooks/useClientApi'
 import { Badge, Button, Card, EmptyState, Tabs } from '../../components/ui/Primitives'
+import { todayIso, trainingDayLabel } from '../../lib/format'
 import { MUSCLE_GROUPS, MUSCLE_GROUP_LABEL } from '../../data/exercises'
 import { getExerciseImages } from '../../data/exerciseImages'
 import { WorkoutLogger } from '../../components/WorkoutLogger'
@@ -24,6 +25,7 @@ export function ExercisesPage() {
   const [muscleFilter, setMuscleFilter] = useState<MuscleGroup | 'all'>('all')
   const [pickerDayIndex, setPickerDayIndex] = useState<number | null>(null)
   const [loggingDay, setLoggingDay] = useState<ProgramDay | null>(null)
+  const [trainingDate, setTrainingDate] = useState<string | null>(null)
 
   const exerciseById = useMemo(() => new Map((exercises ?? []).map((e) => [e.id, e])), [exercises])
   const isSelf = client?.format === 'SELF'
@@ -63,9 +65,9 @@ export function ExercisesPage() {
     saveDays(toPayload(nextDays))
   }
 
-  function addDay() {
-    const label = `День ${days.length + 1} — новая тренировка`
-    saveDays(toPayload([...days, { id: '', label, order: days.length, entries: [] }]))
+  function addDay(dateIso: string) {
+    saveDays(toPayload([...days, { id: '', label: trainingDayLabel(dateIso), order: days.length, entries: [] }]))
+    setTrainingDate(null)
   }
 
   function removeDay(dayIndex: number) {
@@ -94,11 +96,29 @@ export function ExercisesPage() {
           <div className="flex items-center justify-between">
             <Badge tone={isSelf ? 'accent' : 'neutral'}>{isSelf || !program ? 'Ваша программа' : 'Назначено тренером'}</Badge>
             {isSelf && (
-              <Button size="sm" variant="secondary" onClick={addDay}>
-                <PlusCircle size={14} /> Добавить день
+              <Button size="sm" variant="secondary" onClick={() => setTrainingDate(trainingDate === null ? todayIso() : null)}>
+                <PlusCircle size={14} /> Добавить тренировку
               </Button>
             )}
           </div>
+
+          {trainingDate !== null && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] p-2">
+              <input
+                autoFocus
+                type="date"
+                value={trainingDate}
+                onChange={(e) => setTrainingDate(e.target.value)}
+                className="rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-2.5 py-1.5 text-sm outline-none focus:border-[var(--accent)]"
+              />
+              <Button size="sm" disabled={!trainingDate} onClick={() => trainingDate && addDay(trainingDate)}>
+                Добавить
+              </Button>
+              <button onClick={() => setTrainingDate(null)} className="text-xs text-[var(--text-muted)] hover:underline">
+                Отмена
+              </button>
+            </div>
+          )}
 
           {days.length === 0 && <EmptyState title="Программа ещё не составлена" subtitle={isSelf ? 'Добавьте первый день тренировок' : 'Дождитесь, пока тренер составит программу'} />}
 
@@ -278,7 +298,7 @@ export function ExercisesPage() {
         </div>
       )}
 
-      {loggingDay && <WorkoutLogger open={!!loggingDay} onClose={() => setLoggingDay(null)} day={loggingDay} exerciseById={exerciseById} />}
+      {loggingDay && <WorkoutLogger open={!!loggingDay} onClose={() => setLoggingDay(null)} day={loggingDay} exerciseById={exerciseById} workoutLogs={workoutLogs ?? []} />}
     </div>
   )
 }

@@ -13,7 +13,7 @@ import { FeedbackThread } from '../../components/FeedbackThread'
 import { PhotoTile } from '../../components/PhotoTile'
 import { TariffBadge } from '../../components/TariffBadge'
 import { Badge, Button, Card, EmptyState, SectionTitle } from '../../components/ui/Primitives'
-import { getInitials } from '../../lib/format'
+import { getInitials, todayIso, trainingDayLabel } from '../../lib/format'
 import type { ClientFormat, ProgramDay } from '../../types'
 
 const FORMAT_LABEL: Record<ClientFormat, string> = { PERSONAL: 'Персонально', GROUP: 'Группа', SELF: 'Самостоятельно' }
@@ -36,6 +36,7 @@ export function ClientDetailPage() {
   const setProgram = useSetClientProgram(clientId)
   const [pickerDayIndex, setPickerDayIndex] = useState<number | null>(null)
   const [exerciseQuery, setExerciseQuery] = useState('')
+  const [trainingDate, setTrainingDate] = useState<string | null>(null)
 
   const exerciseById = useMemo(() => new Map((exercises ?? []).map((e) => [e.id, e])), [exercises])
   const normalizeSearch = (s: string) => s.toLowerCase().replace(/ё/g, 'е').trim()
@@ -115,8 +116,9 @@ export function ClientDetailPage() {
   function removeExercise(dayIndex: number, entryIndex: number) {
     saveDays(days.map((d, i) => (i === dayIndex ? { ...d, entries: d.entries.filter((_, ei) => ei !== entryIndex) } : d)))
   }
-  function addDay() {
-    saveDays([...days, { id: '', label: `День ${days.length + 1} — новая тренировка`, order: days.length, entries: [] }])
+  function addDay(dateIso: string) {
+    saveDays([...days, { id: '', label: trainingDayLabel(dateIso), order: days.length, entries: [] }])
+    setTrainingDate(null)
   }
   function removeDay(dayIndex: number) {
     saveDays(days.filter((_, i) => i !== dayIndex))
@@ -166,11 +168,28 @@ export function ClientDetailPage() {
           title="Текущая программа"
           subtitle={program ? `Обновлено ${program.updatedAt.slice(0, 10)} · назначил: ${program.assignedBy === 'trainer' ? 'тренер' : 'клиент'}` : 'Программа ещё не составлена'}
           action={
-            <Button size="sm" variant="secondary" onClick={addDay}>
-              <PlusCircle size={14} /> День
+            <Button size="sm" variant="secondary" onClick={() => setTrainingDate(trainingDate === null ? todayIso() : null)}>
+              <PlusCircle size={14} /> Тренировка
             </Button>
           }
         />
+        {trainingDate !== null && (
+          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] p-2">
+            <input
+              autoFocus
+              type="date"
+              value={trainingDate}
+              onChange={(e) => setTrainingDate(e.target.value)}
+              className="rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-2.5 py-1.5 text-sm outline-none focus:border-[var(--accent)]"
+            />
+            <Button size="sm" disabled={!trainingDate} onClick={() => trainingDate && addDay(trainingDate)}>
+              Добавить
+            </Button>
+            <button onClick={() => setTrainingDate(null)} className="text-xs text-[var(--text-muted)] hover:underline">
+              Отмена
+            </button>
+          </div>
+        )}
         <div className="flex flex-col gap-3">
           {days.map((day, dayIndex) => (
             <div key={day.id || dayIndex} className="rounded-xl border border-[var(--border)] p-3">

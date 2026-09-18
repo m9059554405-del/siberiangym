@@ -22,3 +22,14 @@ export function formatDateLong(dateStr: string): string {
 export function toDateOnly(iso: string): string {
   return iso.slice(0, 10)
 }
+
+export function todayIso(): string {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+export function trainingDayLabel(dateIso: string): string {
+  const [y, m, d] = dateIso.split('-')
+  return `Тренировка ${d}.${m}.${y}`
+}

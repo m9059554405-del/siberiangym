@@ -1,31 +1,37 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { useLogWorkout } from '../hooks/useClientApi'
 import { RestTimer } from './RestTimer'
 import { Button } from './ui/Primitives'
 import { Modal } from './ui/Modal'
-import type { EffortLevel, Exercise, ProgramDay } from '../types'
+import type { EffortLevel, Exercise, ProgramDay, WorkoutLogEntry } from '../types'
 
 const EFFORT_ORDER: EffortLevel[] = ['WARMUP', 'EASY', 'MEDIUM', 'HARD', 'VERY_HARD']
 const EFFORT_COLOR: Record<EffortLevel, string> = {
-  WARMUP: '#9ca3af',
-  EASY: '#22c55e',
-  MEDIUM: '#eab308',
-  HARD: '#f97316',
-  VERY_HARD: '#ef4444',
+  WARMUP: '#00FFFF',
+  EASY: '#008000',
+  MEDIUM: '#EE7700',
+  HARD: '#E77471',
+  VERY_HARD: '#FF0000',
+}
+const EFFORT_TEXT_COLOR: Record<EffortLevel, string> = {
+  WARMUP: '#083344',
+  EASY: '#ffffff',
+  MEDIUM: '#ffffff',
+  HARD: '#ffffff',
+  VERY_HARD: '#ffffff',
 }
 const EFFORT_LABEL: Record<EffortLevel, string> = {
   WARMUP: 'Разминка',
   EASY: 'Легко',
   MEDIUM: 'Средне',
   HARD: 'Тяжело',
-  VERY_HARD: 'Очень тяжело',
+  VERY_HARD: 'Отказ',
 }
 
 interface SetRow {
   weight: string
   reps: string
-  effort: EffortLevel
   completed: boolean
 }
 
@@ -54,27 +60,44 @@ export function WorkoutLogger({
   onClose,
   day,
   exerciseById,
+  workoutLogs,
 }: {
   open: boolean
   onClose: () => void
   day: ProgramDay
   exerciseById: Map<string, Exercise>
+  workoutLogs: WorkoutLogEntry[]
 }) {
   const logWorkout = useLogWorkout()
   const [rows, setRows] = useState<Record<string, SetRow[]>>({})
+  const [effortByExercise, setEffortByExercise] = useState<Record<string, EffortLevel>>({})
+
+  const lastEffortByExercise = useMemo(() => {
+    const map = new Map<string, EffortLevel>()
+    const sorted = [...workoutLogs].sort((a, b) => a.date.localeCompare(b.date))
+    for (const log of sorted) {
+      for (const ex of log.exercises) {
+        const last = [...ex.sets].reverse().find((s) => s.completed && s.effort)
+        if (last?.effort) map.set(ex.exerciseId, last.effort)
+      }
+    }
+    return map
+  }, [workoutLogs])
 
   useEffect(() => {
     if (!open) return
     const map: Record<string, SetRow[]> = {}
+    const efforts: Record<string, EffortLevel> = {}
     for (const entry of day.entries) {
       map[entry.exerciseId] = Array.from({ length: entry.sets }, () => ({
         weight: loadToWeight(entry.load),
         reps: entry.reps.split('-')[0] ?? entry.reps,
-        effort: 'MEDIUM' as EffortLevel,
         completed: true,
       }))
+      efforts[entry.exerciseId] = lastEffortByExercise.get(entry.exerciseId) ?? 'MEDIUM'
     }
     setRows(map)
+    setEffortByExercise(efforts)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, day])
 
@@ -88,16 +111,14 @@ export function WorkoutLogger({
     setRows((r) => {
       const list = r[exerciseId]
       const last = list[list.length - 1]
-      return { ...r, [exerciseId]: [...list, last ? { ...last } : { weight: '', reps: '', effort: 'MEDIUM', completed: true }] }
+      return { ...r, [exerciseId]: [...list, last ? { ...last } : { weight: '', reps: '', completed: true }] }
     })
   }
   function removeSet(exerciseId: string, index: number) {
     setRows((r) => ({ ...r, [exerciseId]: r[exerciseId].filter((_, i) => i !== index) }))
   }
-  function cycleEffort(exerciseId: string, index: number) {
-    const current = rows[exerciseId][index].effort
-    const next = EFFORT_ORDER[(EFFORT_ORDER.indexOf(current) + 1) % EFFORT_ORDER.length]
-    updateSet(exerciseId, index, { effort: next })
+  function selectEffort(exerciseId: string, effort: EffortLevel) {
+    setEffortByExercise((prev) => ({ ...prev, [exerciseId]: effort }))
   }
 
   function finish() {
@@ -107,7 +128,7 @@ export function WorkoutLogger({
         reps: s.reps,
         load: /^\d/.test(s.weight) ? `${s.weight} кг` : s.weight,
         completed: s.completed,
-        effort: s.effort,
+        effort: effortByExercise[entry.exerciseId] ?? 'MEDIUM',
       })),
     }))
     logWorkout.mutate({ dayLabel: day.label, exercises }, { onSuccess: onClose })
@@ -120,6 +141,7 @@ export function WorkoutLogger({
           const ex = exerciseById.get(entry.exerciseId)
           if (!ex) return null
           const list = rows[entry.exerciseId] ?? []
+          const effort = effortByExercise[entry.exerciseId] ?? 'MEDIUM'
           return (
             <div key={entry.exerciseId} className="rounded-xl border border-[var(--border)] p-3">
               <div className="mb-2 flex items-center justify-between">
@@ -127,8 +149,7 @@ export function WorkoutLogger({
                 <span className="text-xs text-[var(--text-faint)]">{ex.muscleGroup}</span>
               </div>
               <div className="flex flex-col gap-1">
-                <div className="grid grid-cols-[16px_24px_1fr_1fr_28px] items-center gap-1.5 px-1 text-[10px] text-[var(--text-faint)]">
-                  <span />
+                <div className="grid grid-cols-[24px_1fr_1fr_28px] items-center gap-1.5 px-1 text-[10px] text-[var(--text-faint)]">
                   <span>#</span>
                   <span>Вес, кг</span>
                   <span>Повторы</span>
@@ -137,13 +158,7 @@ export function WorkoutLogger({
                 {list.map((set, i) => {
                   const prev = list[i - 1]
                   return (
-                    <div key={i} className="grid grid-cols-[16px_24px_1fr_1fr_28px] items-center gap-1.5">
-                      <button
-                        title={EFFORT_LABEL[set.effort]}
-                        onClick={() => cycleEffort(entry.exerciseId, i)}
-                        className="h-6 w-2 rounded-full"
-                        style={{ background: EFFORT_COLOR[set.effort] }}
-                      />
+                    <div key={i} className="grid grid-cols-[24px_1fr_1fr_28px] items-center gap-1.5">
                       <span className="text-center text-xs font-medium text-[var(--text-faint)]">{i + 1}</span>
                       <div className="flex flex-col">
                         <input
@@ -172,6 +187,24 @@ export function WorkoutLogger({
                   )
                 })}
               </div>
+              <div className="mt-2 grid grid-cols-5 gap-px overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--border)]">
+                {EFFORT_ORDER.map((lvl) => {
+                  const active = effort === lvl
+                  return (
+                    <button
+                      key={lvl}
+                      onClick={() => selectEffort(entry.exerciseId, lvl)}
+                      className="flex min-h-[30px] items-center justify-center px-0.5 py-1 text-center text-[10px] font-medium leading-tight"
+                      style={{
+                        background: active ? EFFORT_COLOR[lvl] : 'var(--surface-raised)',
+                        color: active ? EFFORT_TEXT_COLOR[lvl] : 'var(--text-muted)',
+                      }}
+                    >
+                      {EFFORT_LABEL[lvl]}
+                    </button>
+                  )
+                })}
+              </div>
               <button
                 onClick={() => addSet(entry.exerciseId)}
                 className="tap-scale mt-2 flex items-center gap-1 text-xs font-medium text-[var(--accent-strong)]"
@@ -184,16 +217,6 @@ export function WorkoutLogger({
             </div>
           )
         })}
-
-        <div className="flex flex-wrap items-center gap-2 text-[10px] text-[var(--text-faint)]">
-          <span>Нажмите на цветной индикатор, чтобы задать состояние:</span>
-          {EFFORT_ORDER.map((lvl) => (
-            <span key={lvl} className="flex items-center gap-1">
-              <span className="h-2.5 w-2.5 rounded-full" style={{ background: EFFORT_COLOR[lvl] }} />
-              {EFFORT_LABEL[lvl]}
-            </span>
-          ))}
-        </div>
 
         <Button onClick={finish} disabled={logWorkout.isPending} className="mt-1">
           Завершить тренировку
