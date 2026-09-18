@@ -7,6 +7,11 @@
 # указывает на этот сервер) — Caddy сам получает и продлевает сертификат
 # Let's Encrypt, ничего больше менять не нужно, см. DEPLOY_GUIDE.md, часть 5.
 #
+# P3.16: у КАЖДОГО сервиса явно ограничен размер логов Docker (x-logging
+# ниже) — без секции logging действует дефолтный json-file БЕЗ ограничений,
+# и контейнер за месяцы работы заполняет диск неограниченным логом до
+# аварийной остановки Postgres. 10 МБ × 3 файла = максимум 30 МБ на сервис.
+#
 # Раньше (до 0.17.0) это поведение описывалось в README/DEPLOY_GUIDE.md как
 # "поставьте Caddy на хосте вручную, в docker-compose менять ничего не
 # придётся" — то решение пересмотрено: ручной Caddy на хосте конфликтовал
@@ -27,10 +32,19 @@
 # файла — см. CHANGELOG, P0.3.
 name: siberiangym-prod
 
+# P3.16: единая политика ротации логов для всех сервисов (json-file,
+# max-size+max-file — Docker сам ротирует и удаляет старые файлы).
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_USER: siberiangym
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -46,6 +60,7 @@ services:
   api:
     build: ./api
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       postgres:
         condition: service_healthy
@@ -92,6 +107,7 @@ services:
   monitor:
     image: alpine:3.20
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       - api
     environment:
@@ -107,6 +123,7 @@ services:
   web:
     build: ./web
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       - api
     # Порт 80 наружу не публикуется — единственная внешняя точка входа
@@ -115,6 +132,7 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       - web
     ports:
