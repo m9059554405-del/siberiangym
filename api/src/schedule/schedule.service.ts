@@ -91,10 +91,10 @@ export class ScheduleService implements OnModuleInit, OnModuleDestroy {
     return null;
   }
 
-  private async assertTrainerFreeAt(trainerId: string, range: TimeRange, what: string) {
+  private async assertTrainerFreeAt(db: Pick<Prisma.TransactionClient, 'personalSlot' | 'groupClass'>, trainerId: string, range: TimeRange, what: string) {
     const [slots, classes] = await Promise.all([
-      this.prisma.personalSlot.findMany({ where: { trainerId } }),
-      this.prisma.groupClass.findMany({ where: { trainerId } }),
+      db.personalSlot.findMany({ where: { trainerId } }),
+      db.groupClass.findMany({ where: { trainerId } }),
     ]);
     const slotClash = slots.find((s) => overlaps(range, { date: s.date, start: s.start, end: s.end }));
     if (slotClash) {
@@ -113,12 +113,29 @@ export class ScheduleService implements OnModuleInit, OnModuleDestroy {
   async createGroupClass(actor: JwtPayload, dto: CreateGroupClassDto) {
     const trainer = await this.trainers.assertTrainerAtGym(dto.trainerId, actor.gymId);
     this.assertTrainerAvailable(trainer, new Date(dto.date));
-    await this.assertTrainerFreeAt(dto.trainerId, { date: new Date(dto.date), start: dto.start, end: dto.end }, 'Занятие');
-    const gc = await this.prisma.groupClass.create({
-      data: { gymId: actor.gymId, ...dto, date: new Date(dto.date) },
+    // P3.10: захват «проверить → создать» сериализован advisory-lock'ом по
+    // тренеру — два параллельных создания (слот+занятие, или два занятия на
+    // разных точках сети) выстраиваются в очередь, второй видит занятое
+    // время первого, а не пустоту до его коммита. Тот же лок берёт
+    // генератор серий и создание слотов — все маршруты одного тренера
+    // сериализуются между собой.
+    const gc = await this.withTrainerLock(dto.trainerId, async (tx) => {
+      await this.assertTrainerFreeAt(tx, dto.trainerId, { date: new Date(dto.date), start: dto.start, end: dto.end }, 'Занятие');
+      return tx.groupClass.create({
+        data: { gymId: actor.gymId, ...dto, date: new Date(dto.date) },
+      });
     });
     await this.activityLog.log(actor, 'Создал групповое занятие', dto.type, `${dto.date} ${dto.start}–${dto.end}, тренер: ${trainer.name}`);
     return gc;
+  }
+
+  // P3.10: сериализация операций одного тренера — xact-scoped advisory lock
+  // (живёт ровно до конца транзакции, чистить вручную не нужно).
+  private withTrainerLock<T>(trainerId: string, fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${trainerId}))`;
+      return fn(tx);
+    });
   }
 
   // Запись на групповое занятие — с P0.2 идёт через POST /orders
@@ -293,53 +310,58 @@ export class ScheduleService implements OnModuleInit, OnModuleDestroy {
     const candidates = seriesWindowDates(series);
     if (candidates.length === 0) return result;
 
-    const [trainer, existing, trainerSlots, trainerClasses] = await Promise.all([
-      this.prisma.trainer.findUnique({ where: { id: series.trainerId } }),
-      this.prisma.groupClass.findMany({ where: { seriesId: series.id }, select: { date: true } }),
-      this.prisma.personalSlot.findMany({ where: { trainerId: series.trainerId } }),
-      this.prisma.groupClass.findMany({ where: { trainerId: series.trainerId } }),
-    ]);
-    if (!trainer) return result;
+    // P3.10: генерация сериализуется с ручными создателями тем же
+    // advisory-lock'ом по тренеру — окно между проверкой коллизий и
+    // созданием занятия не может быть «обогнано» параллельным слотом.
+    return this.withTrainerLock(series.trainerId, async (tx) => {
+      const [trainer, existing, trainerSlots, trainerClasses] = await Promise.all([
+        tx.trainer.findUnique({ where: { id: series.trainerId } }),
+        tx.groupClass.findMany({ where: { seriesId: series.id }, select: { date: true } }),
+        tx.personalSlot.findMany({ where: { trainerId: series.trainerId } }),
+        tx.groupClass.findMany({ where: { trainerId: series.trainerId } }),
+      ]);
+      if (!trainer) return result;
 
-    const existingDays = new Set(existing.map((c) => c.date.toISOString().slice(0, 10)));
-    for (const day of candidates) {
-      const iso = day.toISOString().slice(0, 10);
-      if (existingDays.has(iso)) continue;
+      const existingDays = new Set(existing.map((c) => c.date.toISOString().slice(0, 10)));
+      for (const day of candidates) {
+        const iso = day.toISOString().slice(0, 10);
+        if (existingDays.has(iso)) continue;
 
-      const unavailable = this.trainerUnavailableOn(trainer, day);
-      if (unavailable) {
-        result.skipped.push({ date: iso, reason: unavailable === 'DEPARTED' ? 'Тренер ушёл' : 'Тренер недоступен (отпуск/болезнь)' });
-        continue;
-      }
-      const range = { date: day, start: series.start, end: series.end };
-      const slotClash = trainerSlots.find((s) => overlaps(range, { date: s.date, start: s.start, end: s.end }));
-      if (slotClash) {
-        result.skipped.push({ date: iso, reason: `Время занято персональным слотом ${slotClash.start}–${slotClash.end}` });
-        continue;
-      }
-      const classClash = trainerClasses.find((c) => overlaps(range, { date: c.date, start: c.start, end: c.end }));
-      if (classClash) {
-        result.skipped.push({ date: iso, reason: `Пересекается с «${classClash.type}» ${classClash.start}–${classClash.end}` });
-        continue;
-      }
+        const unavailable = this.trainerUnavailableOn(trainer, day);
+        if (unavailable) {
+          result.skipped.push({ date: iso, reason: unavailable === 'DEPARTED' ? 'Тренер ушёл' : 'Тренер недоступен (отпуск/болезнь)' });
+          continue;
+        }
+        const range = { date: day, start: series.start, end: series.end };
+        const slotClash = trainerSlots.find((s) => overlaps(range, { date: s.date, start: s.start, end: s.end }));
+        if (slotClash) {
+          result.skipped.push({ date: iso, reason: `Время занято персональным слотом ${slotClash.start}–${slotClash.end}` });
+          continue;
+        }
+        const classClash = trainerClasses.find((c) => overlaps(range, { date: c.date, start: c.start, end: c.end }));
+        if (classClash) {
+          result.skipped.push({ date: iso, reason: `Пересекается с «${classClash.type}» ${classClash.start}–${classClash.end}` });
+          continue;
+        }
 
-      await this.prisma.groupClass.create({
-        data: {
-          gymId: series.gymId,
-          seriesId: series.id,
-          type: series.type,
-          trainerId: series.trainerId,
-          zone: series.zone,
-          date: day,
-          start: series.start,
-          end: series.end,
-          capacity: series.capacity,
-        },
-      });
-      existingDays.add(iso);
-      result.created.push(iso);
-    }
-    return result;
+        await tx.groupClass.create({
+          data: {
+            gymId: series.gymId,
+            seriesId: series.id,
+            type: series.type,
+            trainerId: series.trainerId,
+            zone: series.zone,
+            date: day,
+            start: series.start,
+            end: series.end,
+            capacity: series.capacity,
+          },
+        });
+        existingDays.add(iso);
+        result.created.push(iso);
+      }
+      return result;
+    });
   }
 
   // Диспетчер скользящего горизонта (P2.12): без планировщика в проекте —
@@ -473,9 +495,12 @@ export class ScheduleService implements OnModuleInit, OnModuleDestroy {
   async createPersonalSlot(actor: JwtPayload, dto: CreatePersonalSlotDto) {
     const trainer = await this.trainers.assertTrainerAtGym(dto.trainerId, actor.gymId);
     this.assertTrainerAvailable(trainer, new Date(dto.date));
-    await this.assertTrainerFreeAt(dto.trainerId, { date: new Date(dto.date), start: dto.start, end: dto.end }, 'Слот');
-    return this.prisma.personalSlot.create({
-      data: { gymId: actor.gymId, trainerId: dto.trainerId, date: new Date(dto.date), start: dto.start, end: dto.end, status: 'FREE' },
+    // P3.10: та же сериализация advisory-lock'ом, что и у занятий.
+    return this.withTrainerLock(dto.trainerId, async (tx) => {
+      await this.assertTrainerFreeAt(tx, dto.trainerId, { date: new Date(dto.date), start: dto.start, end: dto.end }, 'Слот');
+      return tx.personalSlot.create({
+        data: { gymId: actor.gymId, trainerId: dto.trainerId, date: new Date(dto.date), start: dto.start, end: dto.end, status: 'FREE' },
+      });
     });
   }
 
