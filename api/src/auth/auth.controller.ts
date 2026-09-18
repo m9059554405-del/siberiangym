@@ -1,4 +1,5 @@
 import { Body, Controller, Post, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { CreateStaffDto } from './dto/create-staff.dto';
@@ -18,6 +19,7 @@ export class AuthController {
     private readonly gyms: GymsService,
   ) {}
 
+  @Throttle({ login: { limit: 5, ttl: 60, blockDuration: 300 } })
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.auth.login(dto.email, dto.password);

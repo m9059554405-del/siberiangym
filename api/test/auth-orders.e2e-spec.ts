@@ -51,18 +51,22 @@ describe('Auth + orders HTTP (e2e smoke)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     orders.createOrder.mockResolvedValue({ id: 'order1', status: 'DRAFT', totalAmount: 700 });
+    orders.confirmReceipt.mockResolvedValue({ id: 'order1', status: 'PAID' });
   });
 
-  it('POST /api/auth/login возвращает токен и публичные данные пользователя', async () => {
-    const response = await request(app.getHttpServer())
-      .post('/api/auth/login')
-      .send({ email: 'staff@siberiangym.ru', password: 'password' })
-      .expect(201);
+  it('POST /api/auth/login возвращает токен и блокирует шестую попытку', async () => {
+    const body = { email: 'staff@siberiangym.ru', password: 'password' };
+    const response = await request(app.getHttpServer()).post('/api/auth/login').send(body).expect(201);
 
     expect(response.body).toEqual({
       accessToken: 'token',
       user: { id: 'user1', role: 'STAFF', gymId: 'gym1' },
     });
+
+    for (let attempt = 2; attempt <= 5; attempt++) {
+      await request(app.getHttpServer()).post('/api/auth/login').send(body).expect(201);
+    }
+    await request(app.getHttpServer()).post('/api/auth/login').send(body).expect(429);
   });
 
   it('POST /api/orders проходит через auth guard и вызывает сервис с actor', async () => {

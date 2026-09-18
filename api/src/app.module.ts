@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { ActivityLogModule } from './activity-log/activity-log.module';
@@ -38,6 +40,22 @@ import { PaymentsModule } from './payments/payments.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ThrottlerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        throttlers: [{
+          name: 'default',
+          limit: config.get<number>('API_RATE_LIMIT', 120),
+          ttl: config.get<number>('API_RATE_WINDOW_MS', 60_000) / 1000,
+        }, {
+          name: 'login',
+          limit: config.get<number>('LOGIN_RATE_LIMIT', 5),
+          ttl: config.get<number>('LOGIN_RATE_WINDOW_MS', 60_000) / 1000,
+          blockDuration: config.get<number>('LOGIN_BLOCK_DURATION_MS', 300_000) / 1000,
+        }],
+        errorMessage: 'Слишком много запросов. Повторите попытку позже.',
+      }),
+    }),
     PrismaModule,
     EmailModule,
     AuthModule,
@@ -73,5 +91,6 @@ import { PaymentsModule } from './payments/payments.module';
     AcquiringModule,
     PaymentsModule,
   ],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}

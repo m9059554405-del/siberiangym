@@ -3,6 +3,22 @@
 Все значимые изменения проекта фиксируются в этом файле.
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.0.0/).
 
+## [0.57.0] — 2026-09-18
+
+[P3.4] Rate limiting на логине и API.
+
+### Добавлено
+- Глобальный `ThrottlerGuard` для API: по умолчанию 120 запросов на IP за минуту.
+- Отдельный лимит `POST /auth/login`: 5 попыток за минуту и блокировка трекера на 5 минут после превышения.
+- Конфигурация лимитов через `API_RATE_LIMIT`, `API_RATE_WINDOW_MS`, `LOGIN_RATE_LIMIT`, `LOGIN_RATE_WINDOW_MS`, `LOGIN_BLOCK_DURATION_MS` в `.env.prod`/Compose.
+- `trust proxy` для корректного определения IP клиента за Caddy/Nginx.
+- E2E-проверка: шестая попытка входа получает HTTP 429; защищённые order-маршруты продолжают передавать actor в сервис.
+
+### Проверено
+- `npm test` в `api`: 9 suites, 79 tests зелёные.
+- `npm run test:e2e` в `api`: 3 tests зелёные, включая проверку HTTP 429.
+- `npm run build` в `api` зелёный.
+
 ## [0.56.0] — 2026-09-18
 
 [P3.3] Бэкапы базы данных и восстановление.

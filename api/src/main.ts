@@ -6,6 +6,7 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.enableCors();
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
   // Фото теперь идут через multipart (POST /uploads/photo, см. P0.5), а не
   // как data URL в JSON-теле — дефолт body-parser (100kb) здесь больше не
   // проблема сам по себе, но явный лимит стоит задать в любом случае, а не

@@ -1,6 +1,6 @@
 {
   "name": "siberiangym-api",
-  "version": "0.56.0",
+  "version": "0.57.0",
   "private": true,
   "main": "dist/main.js",
   "scripts": {
@@ -33,6 +33,7 @@
     "@nestjs/jwt": "^11.0.2",
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.2.3",
+    "@nestjs/throttler": "^6.5.0",
     "@prisma/client": "^6.19.3",
     "@types/web-push": "^3.6.4",
     "bcrypt": "^6.0.0",
