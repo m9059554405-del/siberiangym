@@ -603,18 +603,45 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 1. **Автоматические снапшоты хостера** — если включили при заказе
    сервера (часть 3), они уже работают в фоне, ничего дополнительно
    делать не нужно.
-2. **Резервная копия самой базы данных** — дополнительная страховка,
-   которая работает даже если что-то случится со всем сервером
-   целиком. Простой способ вручную сохранить копию базы прямо сейчас:
+2. **Автоматическая резервная копия PostgreSQL в S3** — скрипт
+   `scripts/backup-postgres.sh` делает сжатый custom-format `pg_dump`,
+   загружает файл в S3-префикс `backups/postgres/`, задаёт lifecycle с
+   хранением `BACKUP_RETENTION_DAYS` дней и удаляет старые локальные файлы.
+   Ключи S3 берутся из `.env.prod`; при их отсутствии скрипт всё равно
+   создаёт локальную копию и явно пишет предупреждение.
+
+   Разрешите запуск скрипта и добавьте ежедневный cron от root (путь
+   замените на фактический каталог проекта):
 
    ```bash
-   docker compose -f docker-compose.prod.yml exec postgres \
-     pg_dump -U siberiangym siberiangym > backup-$(date +%Y-%m-%d).sql
+   chmod 700 scripts/backup-postgres.sh scripts/restore-postgres.sh
+   (crontab -l 2>/dev/null; echo "15 3 * * * /opt/siberiangym/scripts/backup-postgres.sh >> /var/log/siberiangym-backup.log 2>&1") | crontab -
    ```
 
-   Полученный файл `backup-2026-09-11.sql` стоит время от времени
-   скачивать себе на компьютер (например, через `scp` или любой
-   FTP/SFTP-клиент вроде WinSCP) и хранить отдельно от сервера.
+   Ручной запуск для проверки:
+
+   ```bash
+   scripts/backup-postgres.sh
+   ```
+
+   Скрипт восстановления намеренно требует отдельного подтверждения
+   `RESTORE` и должен запускаться только против disposable-копии окружения,
+   а не боевой базы:
+
+   ```bash
+   scripts/restore-postgres.sh /var/backups/siberiangym/siberiangym-2026-09-18T03-15-00Z.dump
+   ```
+
+   После восстановления проверьте число миграций и несколько критичных
+   таблиц (`users`, `clients`, `orders`, `transactions`). Тест полного
+   восстановления следует выполнять на отдельном сервере/временном VPS
+   минимум раз в квартал; результат фиксируйте в журнале эксплуатации.
+
+   Для S3-копии можно указать `s3://bucket/key` вместо локального файла:
+
+   ```bash
+   scripts/restore-postgres.sh s3://siberiangym-media/backups/postgres/<file>.dump
+   ```
 
 ### Логи и диагностика
 

@@ -1,6 +1,6 @@
 {
   "name": "siberiangym-api",
-  "version": "0.55.0",
+  "version": "0.56.0",
   "private": true,
   "main": "dist/main.js",
   "scripts": {
@@ -14,7 +14,9 @@
     "prisma:network-migration": "ts-node prisma/network-migration.ts",
     "test": "jest --runInBand",
     "test:watch": "jest --watch",
-    "test:e2e": "jest --config jest.e2e.config.js --runInBand"
+    "test:e2e": "jest --config jest.e2e.config.js --runInBand",
+    "backup:postgres": "bash ../scripts/backup-postgres.sh",
+    "restore:postgres": "bash ../scripts/restore-postgres.sh"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
