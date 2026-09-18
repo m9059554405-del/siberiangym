@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
-import { ArrowLeftRight, Building2, Pencil, Plus, Trash2 } from 'lucide-react'
+import { ArrowLeftRight, Building2, Pencil, Plus, Power, Trash2 } from 'lucide-react'
 import { useTrainers } from '../../hooks/useClientApi'
 import { useAllClients } from '../../hooks/useStaffApi'
 import { useAssignTrainerGym, useTransactions, useUnassignTrainerGym } from '../../hooks/useCeoApi'
-import { useCreateGym, useDeleteGym, useMoveStaff, useNetworkGyms, useNetworkStaff, useUpdateGym } from '../../hooks/useGymsApi'
+import { useCreateGym, useDeleteGym, useMoveStaff, useNetworkGyms, useNetworkStaff, useSetStaffActive, useUpdateGym } from '../../hooks/useGymsApi'
 import { useAuthStore } from '../../store/useAuthStore'
 import { AddStaffModal } from './AddStaffModal'
 import { Badge, Button, Card, SectionTitle } from '../../components/ui/Primitives'
@@ -217,6 +217,7 @@ export function GymsPage() {
   const { data: trainers } = useTrainers()
   const { data: transactions } = useTransactions()
   const moveStaff = useMoveStaff()
+  const setStaffActive = useSetStaffActive()
   const currentGymId = useAuthStore((s) => s.user?.gymId)
   const setSession = useAuthStore((s) => s.setSession)
 
@@ -376,6 +377,15 @@ export function GymsPage() {
                   <option key={g.id} value={g.id}>{g.name}</option>
                 ))}
               </select>
+              <Button
+                size="sm"
+                variant={s.isActive ? 'danger' : 'secondary'}
+                disabled={setStaffActive.isPending}
+                title={s.isActive ? 'Отключить логин без удаления истории (P3.9)' : 'Вернуть доступ'}
+                onClick={() => setStaffActive.mutate({ userId: s.id, isActive: !s.isActive })}
+              >
+                <Power size={14} /> {s.isActive ? 'Отключить' : 'Включить'}
+              </Button>
             </div>
           ))}
         </div>

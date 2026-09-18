@@ -32,6 +32,17 @@ export class GymsController {
     return this.gyms.moveStaff(user, userId, dto.gymId);
   }
 
+  // P3.9: деактивация логина администратора без удаления истории.
+  @Post('staff/:userId/deactivate')
+  deactivateStaff(@Param('userId') userId: string, @CurrentUser() user: JwtPayload) {
+    return this.gyms.setStaffActive(user, userId, false);
+  }
+
+  @Post('staff/:userId/activate')
+  activateStaff(@Param('userId') userId: string, @CurrentUser() user: JwtPayload) {
+    return this.gyms.setStaffActive(user, userId, true);
+  }
+
   @Post()
   create(@Body() dto: CreateGymDto, @CurrentUser() user: JwtPayload) {
     return this.gyms.create(user, dto);

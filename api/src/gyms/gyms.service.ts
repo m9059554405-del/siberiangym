@@ -115,6 +115,36 @@ export class GymsService {
     return moved;
   }
 
+  // Деактивация/реактивация логина администратора (P3.9): не удаляем User —
+  // на него ссылается история (activity-log, заказы, авторство). Отключённый
+  // логин не может войти (login проверяет isActive), а активные JWT умирают
+  // сразу через подъём sessionVersion (P3.8).
+  async setStaffActive(actor: JwtPayload, userId: string, isActive: boolean) {
+    const networkId = await this.resolveOwnedNetworkId(actor);
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { gym: { select: { networkId: true } } },
+    });
+    if (!user || user.gym.networkId !== networkId) {
+      throw new NotFoundException('Администратор не найден в вашей сети');
+    }
+    if (user.role !== 'STAFF') throw new BadRequestException('Деактивировать можно только администраторов');
+    if (user.isActive === isActive) return user;
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        isActive,
+        // Деактивация отзывает выданные токены сразу; реактивация ничего
+        // не отзывает, но требовать новую версию безвредно и единообразно.
+        sessionVersion: { increment: 1 },
+      },
+      select: { id: true, name: true, email: true, phone: true, gymId: true, role: true, isActive: true, createdAt: true },
+    });
+    await this.activityLog.log(actor, isActive ? 'Включил логин администратора' : 'Деактивировал логин администратора', updated.name ?? updated.email ?? updated.id, 'История действий сохранена, запись User не удаляется');
+    return updated;
+  }
+
   async update(actor: JwtPayload, gymId: string, dto: UpdateGymDto) {
     await this.assertBelongsToOwnedNetwork(actor, gymId);
     if (dto.name === undefined && dto.selfTrainingMinAge === undefined) {

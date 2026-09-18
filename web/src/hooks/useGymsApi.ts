@@ -58,7 +58,17 @@ export function useNetworkStaff() {
 export function useMoveStaff() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (vars: { userId: string; gymId: string }) => api.patch<StaffUser>(`/gyms/staff/${vars.userId}`, { gymId: vars.gymId }),
+    mutationFn: (dto: { userId: string; gymId: string }) => api.patch(`/gyms/staff/${dto.userId}`, { gymId: dto.gymId }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['gyms', 'staff'] }),
+  })
+}
+
+// P3.9: деактивация/реактивация логина администратора без потери истории.
+export function useSetStaffActive() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (vars: { userId: string; isActive: boolean }) =>
+      api.post(`/gyms/staff/${vars.userId}/${vars.isActive ? 'activate' : 'deactivate'}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['gyms', 'staff'] }),
   })
 }
