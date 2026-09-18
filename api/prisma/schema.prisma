@@ -614,6 +614,10 @@ model GroupClass {
 
   @@index([gymId])
   @@index([trainerId])
+  // P3.14: горячий запрос «расписание точки на день/диапазон» фильтрует
+  // сразу по gymId и дате — составной индекс вместо пересечения двух
+  // одиночных.
+  @@index([gymId, date])
   @@index([seriesId, date])
   @@map("group_classes")
 }
@@ -709,6 +713,8 @@ model PersonalSlot {
 
   @@index([gymId])
   @@index([trainerId])
+  // P3.14: тот же горячий сценарий, что у групповых занятий.
+  @@index([gymId, date])
   @@map("personal_slots")
 }
 
