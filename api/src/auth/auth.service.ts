@@ -12,6 +12,11 @@ export interface JwtPayload {
   sub: string; // userId
   gymId: string;
   role: Role;
+  // P3.8: версия сессии на момент выдачи токена. Отзыв = подъём версии
+  // в User.sessionVersion: если в токене версия меньше актуальной из БД,
+  // JwtStrategy отклоняет запрос (уволенный сотрудник, сменённый пароль,
+  // выключенная 2FA — старые токены умирают сразу, не через 7 дней TTL).
+  sesVer?: number;
 }
 
 const BCRYPT_ROUNDS = 12;
@@ -46,8 +51,8 @@ export class AuthService {
     return this.issueAccessToken(user);
   }
 
-  private issueAccessToken(user: { id: string; gymId: string; role: Role; email: string | null }) {
-    const payload: JwtPayload = { sub: user.id, gymId: user.gymId, role: user.role };
+  private issueAccessToken(user: { id: string; gymId: string; role: Role; email: string | null; sessionVersion: number }) {
+    const payload: JwtPayload = { sub: user.id, gymId: user.gymId, role: user.role, sesVer: user.sessionVersion };
     return {
       requiresTwoFactor: false,
       accessToken: this.jwt.sign(payload),
@@ -70,6 +75,14 @@ export class AuthService {
     return this.issueAccessToken(user);
   }
 
+  // P3.8: отзыв всех сессий пользователя — подъём sessionVersion. Старые
+  // токены (sesVer меньше актуального) перестают проходить JwtStrategy.
+  async revokeSessions(userId: string): Promise<void> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { sessionVersion: true } });
+    if (!user) return;
+    await this.prisma.user.update({ where: { id: userId }, data: { sessionVersion: { increment: 1 } } });
+  }
+
   async startTwoFactorSetup(actor: JwtPayload) {
     if (actor.role !== Role.CEO && actor.role !== Role.STAFF) throw new ForbiddenException('2FA доступна только CEO и STAFF');
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: actor.sub } });
@@ -90,7 +103,9 @@ export class AuthService {
     if (actor.role !== Role.CEO && actor.role !== Role.STAFF) throw new ForbiddenException('2FA доступна только CEO и STAFF');
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: actor.sub } });
     if (!user.twoFactorEnabled || !user.twoFactorSecret || !verifyTotp(user.twoFactorSecret, code)) throw new BadRequestException('Неверный код приложения-аутентификатора');
-    await this.prisma.user.update({ where: { id: actor.sub }, data: { twoFactorSecret: null, twoFactorPendingSecret: null, twoFactorEnabled: false } });
+    // Выключение 2FA — подозрительное действие: отзываем все сессии (P3.8),
+    // кроме текущей (её и так выдаём заново через новый login).
+    await this.prisma.user.update({ where: { id: actor.sub }, data: { twoFactorSecret: null, twoFactorPendingSecret: null, twoFactorEnabled: false, sessionVersion: { increment: 1 } } });
     return { enabled: false };
   }
 
@@ -132,7 +147,8 @@ export class AuthService {
 
     const passwordHash = await this.hashPassword(password);
     await this.prisma.$transaction([
-      this.prisma.user.update({ where: { id: token.userId }, data: { passwordHash } }),
+      // Смена пароля инвалидирует все ранее выданные токены (P3.8).
+      this.prisma.user.update({ where: { id: token.userId }, data: { passwordHash, sessionVersion: { increment: 1 } } }),
       this.prisma.passwordResetToken.update({ where: { id: token.id }, data: { usedAt: new Date() } }),
       this.prisma.passwordResetToken.updateMany({ where: { userId: token.userId, usedAt: null, id: { not: token.id } }, data: { usedAt: new Date() } }),
     ]);

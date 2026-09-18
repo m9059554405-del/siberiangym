@@ -133,6 +133,12 @@ model User {
   twoFactorSecret          String?  @map("two_factor_secret")
   twoFactorPendingSecret   String?  @map("two_factor_pending_secret")
   twoFactorEnabled         Boolean  @default(false) @map("two_factor_enabled")
+  // P3.8: монотонная версия учёных записей для отзыва JWT. Каждый
+  // выданный токен несёт sesVer (версию сессии на момент входа); любое
+  // инвалидирование (смена пароля, отключение 2FA, деактивация) поднимает
+  // версию — все ранее выданные токены пользователя автоматически
+  // перестают проходить проверку в JwtStrategy.
+  sessionVersion          Int      @default(0) @map("session_version")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 

@@ -223,7 +223,12 @@ export class TrainersService {
           unavailableFrom: dto.mode === TrainerAvailabilityMode.UNAVAILABLE ? from : null,
           unavailableUntil: dto.mode === TrainerAvailabilityMode.UNAVAILABLE ? until : null,
           departedAt: dto.mode === TrainerAvailabilityMode.DEPARTED ? new Date() : null,
-          ...(trainer.userId ? { user: { update: { isActive: dto.mode !== TrainerAvailabilityMode.DEPARTED } } } : {}),
+          // P3.8: уход тренера деактивирует логин И отзывает уже выданные
+          // токены (sessionVersion+1), чтобы доступ пропал сразу, а не
+          // через TTL JWT.
+          ...(trainer.userId
+            ? { user: { update: { isActive: dto.mode !== TrainerAvailabilityMode.DEPARTED, sessionVersion: dto.mode === TrainerAvailabilityMode.DEPARTED ? { increment: 1 } : undefined } } }
+            : {}),
         },
       });
       if (dto.mode === TrainerAvailabilityMode.DEPARTED) {

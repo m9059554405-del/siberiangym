@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { Outlet, useNavigate } from 'react-router-dom'
 import { Bell, Briefcase, Dumbbell, LogOut, ShieldCheck, UserRound, Users } from 'lucide-react'
+import { api } from '../lib/api'
 import { useAuthStore, type Role } from '../store/useAuthStore'
 import { GymSwitcher } from '../components/GymSwitcher'
 import { useNotifications } from '../hooks/useClientApi'
@@ -69,11 +70,18 @@ export function RootLayout() {
             )}
             <span className="text-xs text-[var(--text-faint)]">{user.email}</span>
             <button
-              onClick={() => {
+              onClick={async () => {
+                // P3.8: отзываем все сессии пользователя на сервере, потом
+                // чистим локальное состояние — «выйти» означает выйти везде.
+                try {
+                  await api.post('/auth/logout-all')
+                } catch {
+                  // даже при ошибке сети локальный выход должен произойти
+                }
                 logout()
                 navigate('/login', { replace: true })
               }}
-              title="Выйти"
+              title="Выйти на всех устройствах"
               className="tap-scale flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-sunken)]"
             >
               <LogOut size={15} />

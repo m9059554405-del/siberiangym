@@ -68,6 +68,15 @@ export class AuthController {
   }
 
   // Смена активной точки сети (P1.1) — CEO переключается между Gym одной Network.
+  // P3.8: «выйти на всех устройствах» — поднимает sessionVersion, все
+  // выданные ранее JWT этого пользователя (включая текущий) становятся
+  // недействительными. Доступен любой роли — это self-service защита.
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Post('logout-all')
+  logoutAll(@CurrentUser() actor: JwtPayload) {
+    return this.auth.revokeSessions(actor.sub).then(() => ({ ok: true }));
+  }
+
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.CEO)
   @Post('switch-gym')

@@ -30,6 +30,7 @@ function userFixture(overrides: Record<string, unknown> = {}) {
     passwordHash: PASSWORD_HASH,
     role: Role.CLIENT,
     isActive: true,
+    sessionVersion: 3,
     ...overrides,
   };
 }
@@ -45,6 +46,7 @@ describe('AuthService.login', () => {
     expect(decoded.sub).toBe('user1');
     expect(decoded.gymId).toBe('gym1');
     expect(decoded.role).toBe('CLIENT');
+    expect(decoded.sesVer).toBe(3);
   });
 
   it('несуществующий email — единая ошибка «Неверный email или пароль» (не раскрывает существование)', async () => {
@@ -105,7 +107,7 @@ describe('AuthService.password reset (P3.5)', () => {
     prisma.passwordResetToken.updateMany.mockReturnValue({ operation: 'tokens.invalidate' });
 
     await expect(service.resetPassword('c'.repeat(64), 'new-password')).resolves.toEqual({ ok: true });
-    expect(prisma.user.update).toHaveBeenCalledWith({ where: { id: 'user1' }, data: { passwordHash: expect.any(String) } });
+    expect(prisma.user.update).toHaveBeenCalledWith({ where: { id: 'user1' }, data: { passwordHash: expect.any(String), sessionVersion: { increment: 1 } } });
     expect(prisma.passwordResetToken.update).toHaveBeenCalledWith({ where: { id: 'reset1' }, data: { usedAt: expect.any(Date) } });
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
@@ -146,6 +148,33 @@ describe('AuthService.two-factor authentication (P3.6)', () => {
     expect(setup.secret).toMatch(/^[A-Z2-7]+$/);
     expect(setup.otpauthUrl).toContain('otpauth://totp/');
     expect(prisma.user.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ twoFactorPendingSecret: setup.secret }) }));
+  });
+});
+
+describe('AuthService.revokeSessions (P3.8)', () => {
+  it('поднимает sessionVersion — все старые токены отзываются', async () => {
+    const { service, prisma } = makeService(userFixture());
+    prisma.user.findUnique.mockResolvedValueOnce({ sessionVersion: 3 });
+
+    await expect(service.revokeSessions('user1')).resolves.toBeUndefined();
+    expect(prisma.user.update).toHaveBeenCalledWith({ where: { id: 'user1' }, data: { sessionVersion: { increment: 1 } } });
+  });
+
+  it('несуществующий пользователь — тихо без ошибки', async () => {
+    const { service, prisma } = makeService(null);
+    prisma.user.findUnique.mockResolvedValueOnce(null);
+    await expect(service.revokeSessions('nobody')).resolves.toBeUndefined();
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('сброс пароля инкрементирует sessionVersion в той же транзакции', async () => {
+    const { service, prisma } = makeService(userFixture());
+    prisma.passwordResetToken.findUnique.mockResolvedValue({ id: 'reset1', userId: 'user1', usedAt: null, expiresAt: new Date(Date.now() + 60_000), user: userFixture() });
+
+    await service.resetPassword('c'.repeat(64), 'new-password');
+    expect(prisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ passwordHash: expect.any(String), sessionVersion: { increment: 1 } }) }),
+    );
   });
 });
 
