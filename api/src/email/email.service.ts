@@ -25,6 +25,12 @@ export class EmailService {
         port,
         secure: port === 465,
         auth: { user, pass },
+        // P3.23: явные таймауты SMTP — «молчаливый» почтовый сервер не
+        // должен подвешивать отправку (и запрос, из которого она вызвана)
+        // на неопределённое время.
+        connectionTimeout: this.config.get<number>('SMTP_CONNECT_TIMEOUT_MS', 10_000),
+        greetingTimeout: this.config.get<number>('SMTP_GREETING_TIMEOUT_MS', 10_000),
+        socketTimeout: this.config.get<number>('SMTP_SOCKET_TIMEOUT_MS', 20_000),
       });
     } else {
       this.logger.warn('SMTP не настроен (SMTP_HOST/SMTP_USER/SMTP_PASS) — email-уведомления будут только логироваться');

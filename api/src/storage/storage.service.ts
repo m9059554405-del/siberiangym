@@ -34,6 +34,8 @@ export class StorageService implements OnModuleInit {
       return;
     }
 
+    // P3.23: явные таймауты и ретраи S3 — без них «молча зависший» запрос к
+    // хранилищу держал соединение и запрос клиента неопределённо долго.
     this.client = new S3Client({
       endpoint,
       region: this.config.get<string>('S3_REGION') ?? 'ru-1',
@@ -42,6 +44,11 @@ export class StorageService implements OnModuleInit {
         accessKeyId: this.config.get<string>('S3_ACCESS_KEY_ID') ?? '',
         secretAccessKey: this.config.get<string>('S3_SECRET_ACCESS_KEY') ?? '',
       },
+      requestHandler: {
+        requestTimeout: this.config.get<number>('S3_REQUEST_TIMEOUT_MS', 10_000),
+        connectionTimeout: this.config.get<number>('S3_CONNECT_TIMEOUT_MS', 3_000),
+      },
+      maxAttempts: 2,
     });
     // Домен, по которому объекты реально доступны читателю (браузеру) —
     // не обязательно совпадает с S3_ENDPOINT (там, где провайдер отдаёт

@@ -3,6 +3,19 @@
 Все значимые изменения проекта фиксируются в этом файле.
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.0.0/).
 
+## [0.70.0] — 2026-09-18
+
+[P3.23] Таймауты внешних интеграций.
+
+### Изменено
+- S3 (`StorageService`): явные `requestTimeout` (10 c), `connectionTimeout` (3 c) и `maxAttempts: 2` — «молча зависший» запрос к хранилищу больше не держит соединение и запрос клиента неопределённо долго; настраивается `S3_REQUEST_TIMEOUT_MS`/`S3_CONNECT_TIMEOUT_MS`.
+- SMTP (`EmailService`): `connectionTimeout`/`greetingTimeout` (10 c) и `socketTimeout` (20 c), настраивается `SMTP_*_TIMEOUT_MS`.
+- SMS-шлюз (`SmsService`): HTTP-запрос с `AbortSignal.timeout` (10 c, `SMS_REQUEST_TIMEOUT_MS`).
+- Эквайринг — демо-заглушка без сетевых вызовов; при реальной интеграции таймаут задаётся в той же точке.
+
+### Проверено
+- `npm run build` в `api` зелёный; `npm test`: 14 suites, 112 tests; `npm run test:e2e`: 3 tests — все зелёные.
+
 ## [0.69.0] — 2026-09-18
 
 [P3.22] Глобальные обработчики ошибок.

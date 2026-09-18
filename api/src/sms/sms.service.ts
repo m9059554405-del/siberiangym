@@ -28,10 +28,13 @@ export class SmsService {
 
     try {
       const url = this.config.get<string>('SMS_API_URL')!;
+      // P3.23: явный таймаут HTTP-запроса — fetch без AbortSignal висит
+      // неопределённо долго при «молчащем» шлюзе.
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.config.get<string>('SMS_API_KEY')}` },
         body: JSON.stringify({ phone, text }),
+        signal: AbortSignal.timeout(this.config.get<number>('SMS_REQUEST_TIMEOUT_MS', 10_000)),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
     } catch (err) {
