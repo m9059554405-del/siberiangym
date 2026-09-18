@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import QRCode from 'qrcode'
 import { CalendarCheck, CreditCard, History, MessageCircle, Send, Sparkles, TicketPercent } from 'lucide-react'
 import {
   useMarkDirectorMessagesSeen,
@@ -48,6 +49,31 @@ export function PaymentsPage() {
   const [feedbackSent, setFeedbackSent] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
   const [pendingOrder, setPendingOrder] = useState<Order | null>(null)
+
+  // Код прохода (P2.2) живёт в плашке текущего абонемента: персональный
+  // QR строится на устройстве из id клиента (`sgym-checkin:<id>`) и не
+  // требует сети в момент показа — администратор сканирует его на входе.
+  const clientId = client?.id
+  const [checkinQrUrl, setCheckinQrUrl] = useState<string | null>(null)
+  const [checkinQrOpen, setCheckinQrOpen] = useState(false)
+  useEffect(() => {
+    if (!clientId) return
+    let alive = true
+    QRCode.toDataURL(`sgym-checkin:${clientId}`, {
+      margin: 1,
+      width: 600,
+      color: { dark: '#111827', light: '#ffffff' },
+    })
+      .then((url) => {
+        if (alive) setCheckinQrUrl(url)
+      })
+      .catch(() => {
+        if (alive) setCheckinQrUrl(null)
+      })
+    return () => {
+      alive = false
+    }
+  }, [clientId])
 
   function purchaseMembership(type: MembershipType, scope: 'SINGLE_GYM' | 'NETWORK' = 'SINGLE_GYM') {
     if (!client) return
@@ -111,7 +137,7 @@ export function PaymentsPage() {
 
       {pendingOrder && <OrderPendingNotice order={pendingOrder} onDismiss={() => setPendingOrder(null)} />}
 
-      <Card className="text-white" style={{ background: 'var(--accent-gradient)', border: 'none' }}>
+      <Card className="relative text-white" style={{ background: 'var(--accent-gradient)', border: 'none' }}>
         <div className="flex items-start justify-between">
           <div>
             <div className="text-xs uppercase tracking-wide text-white/70">Текущий абонемент</div>
@@ -122,7 +148,7 @@ export function PaymentsPage() {
           </div>
           {status && <Badge tone={status.tone}>{status.label}</Badge>}
         </div>
-        <div className="mt-3 flex flex-wrap gap-4 text-sm text-white/90">
+        <div className="mt-3 flex flex-wrap gap-4 pr-20 text-sm text-white/90">
           {client.membership?.expiresAt && <div>Действует до {client.membership.expiresAt.slice(0, 10)}</div>}
           {client.membership?.visitsLeft != null && (
             <div>
@@ -131,12 +157,37 @@ export function PaymentsPage() {
           )}
         </div>
         {trainer ? (
-          <div className="mt-3 text-sm text-white/85">
+          <div className="mt-3 pr-20 text-sm text-white/85">
             Ваш тренер: <span className="font-medium">{trainer.name}</span>
             {tariffById(client.tariff) && <> · тариф «{tariffById(client.tariff)!.name}»</>}
           </div>
         ) : (
-          <div className="mt-3 text-sm text-white/85">Формат: самостоятельные тренировки</div>
+          <div className="mt-3 pr-20 text-sm text-white/85">Формат: самостоятельные тренировки</div>
+        )}
+        {checkinQrUrl && (
+          <button
+            type="button"
+            onClick={() => setCheckinQrOpen(true)}
+            aria-label="Показать QR на весь экран"
+            className="tap-scale absolute bottom-3 right-3 cursor-zoom-in rounded-lg bg-white p-1 shadow-md"
+          >
+            <img src={checkinQrUrl} alt="QR для входа" width={64} height={64} />
+          </button>
+        )}
+        {checkinQrOpen && checkinQrUrl && (
+          <div
+            role="presentation"
+            onClick={() => setCheckinQrOpen(false)}
+            className="fixed inset-0 z-50 flex cursor-zoom-out flex-col items-center justify-center gap-4 bg-black/80 p-6"
+          >
+            <div className="rounded-3xl bg-white p-5 shadow-2xl">
+              <img src={checkinQrUrl} alt="QR для входа" className="h-[min(70vw,320px)] w-[min(70vw,320px)]" />
+            </div>
+            <div className="text-center text-sm text-white/90">
+              Покажите этот код администратору на входе
+              <div className="mt-1 text-xs text-white/60">Нажмите, чтобы закрыть</div>
+            </div>
+          </div>
         )}
       </Card>
 
