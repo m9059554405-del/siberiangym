@@ -10,6 +10,9 @@ export class ActivityLogService {
   constructor(private readonly prisma: PrismaService) {}
 
   private async resolveActorName(actor: JwtPayload): Promise<string> {
+    // Системный актор вебхука эквайринга (P2.9) — не человек, показываем
+    // источник записи, а не обезличенное "CEO".
+    if (actor.sub === 'acquiring-webhook') return 'Онлайн-оплата (вебхук)';
     if (actor.role === 'CLIENT') {
       const c = await this.prisma.client.findUnique({ where: { userId: actor.sub } });
       return c?.name ?? 'Клиент';

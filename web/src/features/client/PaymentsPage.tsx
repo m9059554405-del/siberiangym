@@ -8,7 +8,7 @@ import {
   useSendDirectorMessage,
   useTrainers,
 } from '../../hooks/useClientApi'
-import { useCreateCashOrder } from '../../hooks/useOrdersApi'
+import { useCreateCashOrder, useCreateOnlineOrder, useOnlinePaymentsEnabled } from '../../hooks/useOrdersApi'
 import { tariffById } from '../../data/tariffs'
 import { Badge, Button, Card, EmptyState, SectionTitle } from '../../components/ui/Primitives'
 import { TariffPicker } from '../../components/TariffPicker'
@@ -36,6 +36,11 @@ export function PaymentsPage() {
   const { data: trainers } = useTrainers()
   const { data: messages } = useOwnDirectorMessages()
   const createCashOrder = useCreateCashOrder()
+  // P2.9: кнопка онлайн-оплаты появляется только когда эквайринг настроен
+  // на клуб (ACQUIRING_* в окружении API) — до этого клиенту доступна
+  // только оплата через администратора (осознанное ограничение MVP).
+  const onlinePayments = useOnlinePaymentsEnabled()
+  const createOnlineOrder = useCreateOnlineOrder()
   const sendMessage = useSendDirectorMessage()
   const markSeen = useMarkDirectorMessagesSeen()
 
@@ -47,6 +52,20 @@ export function PaymentsPage() {
   function purchaseMembership(type: MembershipType, scope: 'SINGLE_GYM' | 'NETWORK' = 'SINGLE_GYM') {
     if (!client) return
     createCashOrder.mutate({ clientId: client.id, lines: [{ type: 'MEMBERSHIP_PURCHASE', meta: { membershipType: type, scope } }] }, { onSuccess: setPendingOrder })
+  }
+
+  // P2.9: заказ уходит на оплату картой и браузер перенаправляется на
+  // платёжную страницу банка; статус применится вебхуком по возвращении.
+  function purchaseMembershipOnline(type: MembershipType) {
+    if (!client) return
+    createOnlineOrder.mutate(
+      { clientId: client.id, lines: [{ type: 'MEMBERSHIP_PURCHASE', meta: { membershipType: type, scope: 'SINGLE_GYM' } }] },
+      {
+        onSuccess: (order) => {
+          if (order.paymentUrl) window.location.href = order.paymentUrl
+        },
+      },
+    )
   }
 
   function changeTariff(tariff: Tariff) {
@@ -152,6 +171,16 @@ export function PaymentsPage() {
                       {isCurrentSingle ? 'Активен' : 'Купить'}
                     </Button>
                   </div>
+                  {onlinePayments.data?.enabled && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={isCurrentSingle || createOnlineOrder.isPending}
+                      onClick={() => purchaseMembershipOnline(type)}
+                    >
+                      Оплатить картой онлайн
+                    </Button>
+                  )}
                   {networkPrice != null && (
                     <div className="flex items-center justify-between border-t border-[var(--border)] pt-1.5">
                       <span className="text-xs text-[var(--text-muted)]">Вся сеть — {formatMoney(networkPrice)} ₽</span>

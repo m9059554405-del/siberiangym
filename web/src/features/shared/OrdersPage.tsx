@@ -165,6 +165,18 @@ function OpenOrdersSection() {
               <Button onClick={() => submitCash.mutate(selected.id)} disabled={submitCash.isPending}>
                 <Receipt size={15} /> Отправить на оплату наличными
               </Button>
+            ) : selected.paymentMethod === 'CARD_ONLINE' && !cancelling ? (
+              // P2.9: онлайн-заказ закрывает вебхук банка — скан чека кассира
+              // по нему недоступен (API тоже откажет), персонал может только
+              // отменить зависший заказ.
+              <>
+                <div className="rounded-xl bg-[var(--surface-sunken)] px-4 py-3 text-sm text-[var(--text-muted)]">
+                  Клиент оплачивает картой онлайн — заказ закроется автоматически подтверждением банка. Скан чека недоступен.
+                </div>
+                <Button variant="danger" onClick={() => setCancelling(true)}>
+                  <X size={14} /> Отменить заказ
+                </Button>
+              </>
             ) : !cancelling ? (
               <>
                 <ReceiptScanPanel onSubmit={submitScan} isPending={confirmReceipt.isPending} errorMessage={errorMessage} onErrorChange={setErrorMessage} />

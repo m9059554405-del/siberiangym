@@ -52,6 +52,14 @@ export class OrdersController {
     return this.orders.submitCash(user, id);
   }
 
+  // Самостоятельная онлайн-оплата картой (P2.9): доступна и клиенту —
+  // подтверждение приходит вебхуком банка, а не от этого актора.
+  @Roles(Role.CEO, Role.STAFF, Role.CLIENT)
+  @Post(':id/pay/online')
+  submitOnline(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.orders.submitOnline(user, id);
+  }
+
   // Сканирование чека — только администратор/CEO на ресепшене, у клиента
   // такого права нет (иначе он сам себе "подтвердит" любую оплату).
   @Roles(Role.CEO, Role.STAFF)

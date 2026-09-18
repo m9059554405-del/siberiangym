@@ -86,3 +86,22 @@ export function useCancelOrder() {
     onSuccess: invalidate,
   })
 }
+
+// P2.9: самостоятельная онлайн-оплата картой. Кнопка в интерфейсе
+// показывается только когда эквайринг настроен (online-enabled ниже);
+// после перехода на платёжную страницу статус заказа закроет вебхук банка.
+export function useCreateOnlineOrder() {
+  const invalidate = useInvalidateAfterOrder()
+  return useMutation({
+    mutationFn: async (vars: { clientId: string; lines: OrderLineInput[] }) => {
+      const order = await api.post<Order>('/orders', vars)
+      const paid = await api.post<Order & { paymentUrl: string }>(`/orders/${order.id}/pay/online`)
+      return paid
+    },
+    onSuccess: invalidate,
+  })
+}
+
+export function useOnlinePaymentsEnabled() {
+  return useQuery({ queryKey: ['payments', 'online-enabled'], queryFn: () => api.get<{ enabled: boolean }>('/payments/online-enabled') })
+}

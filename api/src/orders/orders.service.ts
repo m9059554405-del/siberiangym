@@ -1,9 +1,11 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { MembershipScope, MembershipType, OrderLineType, Prisma, Tariff, TransactionCategory } from '@prisma/client';
+import type { Client, Order, OrderLine } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActivityLogService } from '../activity-log/activity-log.service';
 import { EmailService } from '../email/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { AcquiringService } from '../acquiring/acquiring.service';
 import { CreateOrderDto, OrderLineInputDto } from './dto/create-order.dto';
 import { formatForTariff, MEMBERSHIP_LABEL, VALIDITY_DAYS, VISITS_TOTAL } from '../clients/membership.const';
 import { TARIFF_NAME, TARIFF_PRICE } from '../clients/tariffs.const';
@@ -47,6 +49,7 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
     private readonly activityLog: ActivityLogService,
     private readonly email: EmailService,
     private readonly notifications: NotificationsService,
+    private readonly acquiring: AcquiringService,
   ) {}
 
   // Просрочка "брошенных" заказов — периодический сдвиг статуса без внешнего
@@ -306,6 +309,31 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
     return updated;
   }
 
+  // P2.9: самостоятельная оплата картой из приложения. Заказ уходит в
+  // AWAITING_PAYMENT с методом CARD_ONLINE и платёжной ссылкой гейта;
+  // оплату подтверждает вебхук банка (payments.service), а не скан чека
+  // администратором — фискальный чек по 54-ФЗ выдаёт онлайн-касса
+  // платёжного шлюза.
+  async submitOnline(actor: JwtPayload, orderId: string) {
+    if (!this.acquiring.isConfigured()) {
+      throw new BadRequestException('Онлайн-оплата картой не настроена — оплатите через администратора клуба');
+    }
+    const order = await this.getOwnedOrder(actor, orderId);
+    if (order.status !== 'DRAFT') throw new BadRequestException('Заказ уже отправлен на оплату или закрыт');
+    const { paymentUrl } = this.acquiring.createPayment({ id: order.id, totalAmount: order.totalAmount });
+    const updated = await this.prisma.order.update({
+      where: { id: orderId },
+      data: {
+        status: 'AWAITING_PAYMENT',
+        paymentMethod: 'CARD_ONLINE',
+        expiresAt: new Date(Date.now() + AWAITING_PAYMENT_TIMEOUT_MINUTES * 60_000),
+      },
+      include: { lines: true },
+    });
+    await this.activityLog.log(actor, 'Отправил заказ на онлайн-оплату картой', order.client.name, `${order.lines.length} поз. на ${order.totalAmount} ₽`);
+    return { ...updated, paymentUrl };
+  }
+
   // Применяет ОДНУ позицию заказа — только мутация состояния, без создания
   // Transaction (это делает вызывающий код в confirmReceipt внутри общей
   // транзакции БД, вместе для всех позиций разом). Повторно проверяет, что
@@ -462,6 +490,11 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
     if (order.status !== 'AWAITING_PAYMENT') {
       throw new BadRequestException(order.status === 'PAID' ? 'Заказ уже оплачен' : 'Заказ не ожидает оплаты — сначала отправьте его на оплату наличными');
     }
+    // P2.9: онлайн-заказ закрывается вебхуком банка — скан бумажного чека
+    // кассира по нему означал бы двойное подтверждение одной оплаты.
+    if (order.paymentMethod === 'CARD_ONLINE') {
+      throw new BadRequestException('Заказ отправлен на онлайн-оплату картой — он закроется автоматически подтверждением банка');
+    }
     if (order.expiresAt && order.expiresAt.getTime() < Date.now()) {
       await this.markExpired(order.id);
       throw new BadRequestException('Время ожидания оплаты по этому заказу истекло, заказ отменён — соберите заказ заново');
@@ -491,10 +524,35 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    const paidAt = new Date();
+    return this.commitAsPaid(
+      order,
+      { raw: receipt.raw, date: receipt.date, fn: receipt.fn, i: receipt.i, fp: receipt.fp },
+      actor,
+      'Подтвердил оплату заказа чеком',
+      `${order.lines.length} поз. на ${order.totalAmount} ₽, чек fn=${receipt.fn}`,
+    );
+  }
+
+  // Общий финал оплаты (P2.9): применяет позиции, создаёт транзакции,
+  // закрывает заказ в PAID. Вызывается из подтверждения чека и из вебхука
+  // эквайринга. Строка заказа блокируется FOR UPDATE, статус перепроверяется
+  // под блокировкой — вебхук и касса не смогут закрыть заказ дважды.
+  private async commitAsPaid(
+    order: Order & { lines: OrderLine[]; client: Client },
+    receipt: { raw: string; date: Date; fn: string | null; i: string | null; fp: string | null },
+    actor: JwtPayload,
+    action: string,
+    details: string,
+  ) {
     let confirmedMembership: { type: MembershipType; expiresAt: Date | null } | undefined;
     const pendingNotifications: Array<{ kind: string; title: string; body: string; refId?: string | null }> = [];
     await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM orders WHERE id = ${order.id} FOR UPDATE`;
+      const fresh = await tx.order.findUniqueOrThrow({ where: { id: order.id }, select: { status: true } });
+      if (fresh.status !== 'AWAITING_PAYMENT') {
+        throw new ConflictException('Заказ уже закрыт параллельной оплатой');
+      }
+      const paidAt = new Date();
       for (const line of order.lines) {
         const applied = await this.applyLine(tx, order.clientId, line);
         if (applied.membership) confirmedMembership = applied.membership;
@@ -534,12 +592,7 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
       });
     });
 
-    await this.activityLog.log(
-      actor,
-      'Подтвердил оплату заказа чеком',
-      order.client.name,
-      `${order.lines.length} поз. на ${order.totalAmount} ₽, чек fn=${receipt.fn}`,
-    );
+    await this.activityLog.log(actor, action, order.client.name, details);
 
     // Подтверждения записи (P2.4) — после коммита, рядом с письмом об
     // абонементе: та же причина — не подтверждать незакоммиченное.
@@ -560,6 +613,52 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
     }
 
     return this.prisma.order.findUnique({ where: { id: order.id }, include: { lines: true } });
+  }
+
+  // Успех онлайн-оплаты от вебхука эквайринга (P2.9): тот же финал, что и
+  // у чека, но без реквизитов бумажного чека — фискальный документ по
+  // 54-ФЗ выдаёт онлайн-касса платёжного шлюза. Идемпотентно: повторный
+  // вебхук по уже оплаченному заказу — ok без повторного применения.
+  async confirmOnlinePayment(orderId: string, amountRub: number, rawPayload: string) {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId }, include: { lines: true, client: true } });
+    if (!order) throw new NotFoundException('Заказ не найден');
+    if (order.status === 'PAID') return { alreadyPaid: true, order };
+    if (order.status !== 'AWAITING_PAYMENT' || order.paymentMethod !== 'CARD_ONLINE') {
+      throw new BadRequestException('Заказ не ожидает онлайн-оплаты');
+    }
+    if (order.expiresAt && order.expiresAt.getTime() < Date.now()) {
+      await this.markExpired(order.id);
+      throw new BadRequestException('Время ожидания онлайн-оплаты истекло, заказ отменён — оформите новый');
+    }
+    if (!amountsMatchToKopeck(order.totalAmount, amountRub)) {
+      throw new BadRequestException(`Сумма платежа не совпадает с заказом: платёж ${amountRub.toFixed(2)} ₽, заказ ${order.totalAmount} ₽`);
+    }
+    const webhookActor: JwtPayload = { sub: 'acquiring-webhook', role: 'CEO', gymId: order.gymId };
+    const updated = await this.commitAsPaid(
+      order,
+      { raw: rawPayload, date: new Date(), fn: null, i: null, fp: null },
+      webhookActor,
+      'Онлайн-оплата подтверждена (вебхук эквайринга)',
+      `${order.lines.length} поз. на ${order.totalAmount} ₽`,
+    );
+    return { alreadyPaid: false, order: updated };
+  }
+
+  // Провал онлайн-оплаты: заказ уходит в CANCELLED, клиент может собрать
+  // новый. Повторный вебхук по уже закрытому заказу — молча ок.
+  async cancelOnlinePayment(orderId: string, reason: string) {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Заказ не найден');
+    if (order.status === 'AWAITING_PAYMENT' && order.paymentMethod === 'CARD_ONLINE') {
+      const updated = await this.prisma.order.update({
+        where: { id: orderId },
+        data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: reason },
+      });
+      const webhookActor: JwtPayload = { sub: 'acquiring-webhook', role: 'CEO', gymId: order.gymId };
+      await this.activityLog.log(webhookActor, 'Онлайн-оплата не прошла — заказ отменён', order.clientId, reason);
+      return { cancelled: true, order: updated };
+    }
+    return { cancelled: false, order };
   }
 
   async cancelOrder(actor: JwtPayload, orderId: string, reason?: string) {

@@ -32,6 +32,8 @@ import { CheckinsModule } from './checkins/checkins.module';
 import { SmsModule } from './sms/sms.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { LeadsModule } from './leads/leads.module';
+import { AcquiringModule } from './acquiring/acquiring.module';
+import { PaymentsModule } from './payments/payments.module';
 
 @Module({
   imports: [
@@ -68,6 +70,8 @@ import { LeadsModule } from './leads/leads.module';
   SmsModule,
   NotificationsModule,
   LeadsModule,
+  AcquiringModule,
+  PaymentsModule,
   ],
 })
 export class AppModule {}
