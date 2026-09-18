@@ -56,6 +56,13 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    # P3.25: лимиты Postgres — база важнее всех, но и её тяжёлый запрос не
+    # должен съедать весь хост.
+    deploy:
+      resources:
+        limits:
+          cpus: "${POSTGRES_CPU_LIMIT:-2.0}"
+          memory: "${POSTGRES_MEMORY_LIMIT:-3g}"
 
   api:
     build: ./api
@@ -103,6 +110,23 @@ services:
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
       S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
       S3_PUBLIC_URL: ${S3_PUBLIC_URL:-}
+    # P3.25: healthcheck по публичному /api/health (проверяет и БД) —
+    # мониторинг и depends_on видят реальное состояние приложения, а не
+    # просто «процесс жив». curl в slim-образе есть.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    # P3.25: явные лимиты ресурсов — разросшийся процесс (утечка, тяжёлый
+    # запрос) падает изолированно по OOM, а не душит Postgres и Caddy на
+    # хосте; значения под целевую конфигурацию 6 vCPU / 12 ГБ.
+    deploy:
+      resources:
+        limits:
+          cpus: "${API_CPU_LIMIT:-2.0}"
+          memory: "${API_MEMORY_LIMIT:-1536M}"
 
   monitor:
     image: alpine:3.20
@@ -126,6 +150,13 @@ services:
     logging: *default-logging
     depends_on:
       - api
+    # P3.25: лимит и для статики — nginx лёгкий, но без лимита любой
+    # процесс может съесть хост.
+    deploy:
+      resources:
+        limits:
+          cpus: "${WEB_CPU_LIMIT:-0.5}"
+          memory: "${WEB_MEMORY_LIMIT:-256M}"
     # Порт 80 наружу не публикуется — единственная внешняя точка входа
     # теперь caddy (ниже). web доступен внутри docker-сети как http://web:80.
 
@@ -135,6 +166,11 @@ services:
     logging: *default-logging
     depends_on:
       - web
+    deploy:
+      resources:
+        limits:
+          cpus: "${CADDY_CPU_LIMIT:-0.5}"
+          memory: "${CADDY_MEMORY_LIMIT:-256M}"
     ports:
       - "80:80"
       - "443:443"
