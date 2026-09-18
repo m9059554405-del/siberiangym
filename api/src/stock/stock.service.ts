@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ActivityLogService } from '../activity-log/activity-log.service';
 import { CreateCatalogItemDto } from './dto/create-catalog-item.dto';
 import { ReceiveStockDto, WriteOffStockDto, FinalizeInventoryDto } from './dto/stock-operations.dto';
+import { planFifoWriteoff } from './fifo.util';
 import type { JwtPayload } from '../auth/auth.service';
 
 const WRITEOFF_REASON_LABEL: Record<string, string> = {
@@ -87,20 +88,15 @@ export class StockService {
 
   // Списываем со СТАРЕЙШИХ по сроку годности партий этого товара в этой
   // локации — так же, как в реальности сначала расходуют то, что раньше
-  // истечёт. Излишек сверх фактического остатка просто игнорируется.
+  // истечёт (FEFO). Распределение количества по партиям — чистая функция
+  // planFifoWriteoff (P3.1), сортировку партий делает orderBy запроса.
+  // Излишек сверх фактического остатка просто игнорируется.
   private async decrementBatches(gymId: string, catalogItemId: string, location: StockLocation, qty: number) {
     const batches = await this.prisma.stockBatch.findMany({
       where: { gymId, catalogItemId, location, quantity: { gt: 0 } },
       orderBy: { expiresAt: 'asc' },
     });
-    let remaining = qty;
-    const updates: { id: string; quantity: number }[] = [];
-    for (const b of batches) {
-      if (remaining <= 0) break;
-      const take = Math.min(b.quantity, remaining);
-      updates.push({ id: b.id, quantity: b.quantity - take });
-      remaining -= take;
-    }
+    const updates = planFifoWriteoff(batches, qty);
     await this.prisma.$transaction(updates.map((u) => this.prisma.stockBatch.update({ where: { id: u.id }, data: { quantity: u.quantity } })));
   }
 

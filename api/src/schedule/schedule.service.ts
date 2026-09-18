@@ -13,6 +13,7 @@ import { GymsService } from '../gyms/gyms.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { startOfDay } from '../clients/membership.const';
 import { LATE_CANCEL_WINDOW_HOURS, SERIES_TOPUP_INTERVAL_MS, hoursBefore, startsAt } from './schedule.const';
+import { dayUtc, seriesWindowDates, weekdayIndex } from './series-dates.util';
 import { overlaps, type TimeRange } from './time-overlap.util';
 
 // Резолвит clientId для self-service действий: клиент может действовать
@@ -126,18 +127,6 @@ export class ScheduleService implements OnModuleInit, OnModuleDestroy {
 
   // --- Серии регулярных занятий (P2.12) ---
 
-  // Календарный день (UTC-полночь) из произвольного момента — вся система
-  // хранит даты занятий именно так.
-  private dayUtc(d: Date): Date {
-    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-  }
-
-  // Индекс дня недели календарного дня: 0=Пн ... 6=Вс — нумерация
-  // TrainerWorkHour.day, а не JS getDay() (воскресенье = 0).
-  private weekdayIndex(date: Date): number {
-    return (date.getUTCDay() + 6) % 7;
-  }
-
   async listSeries(actor: JwtPayload) {
     const gymIds = await this.gymIdsForActor(actor);
     return this.prisma.groupClassSeries.findMany({
@@ -148,7 +137,7 @@ export class ScheduleService implements OnModuleInit, OnModuleDestroy {
         // чтобы показать «сколько занятий впереди» и «у скольких есть
         // записи клиентов» без отдельного запроса.
         occurrences: {
-          where: { date: { gte: this.dayUtc(new Date()) } },
+          where: { date: { gte: dayUtc(new Date()) } },
           orderBy: [{ date: 'asc' }, { start: 'asc' }],
           select: { id: true, date: true, start: true, end: true, capacity: true, _count: { select: { bookings: true } } },
         },
@@ -211,7 +200,7 @@ export class ScheduleService implements OnModuleInit, OnModuleDestroy {
     if (endDate && endDate < startDate) throw new BadRequestException('Дата конца серии раньше даты начала');
 
     const removed = await this.prisma.groupClass.deleteMany({
-      where: { seriesId, date: { gte: this.dayUtc(new Date()) }, bookings: { none: {} } },
+      where: { seriesId, date: { gte: dayUtc(new Date()) }, bookings: { none: {} } },
     });
     const updated = await this.prisma.groupClassSeries.update({
       where: { id: seriesId },
@@ -246,7 +235,7 @@ export class ScheduleService implements OnModuleInit, OnModuleDestroy {
     const series = await this.findSeriesForActor(actor, seriesId);
     if (series.cancelledAt) return { series, removedOccurrences: 0, cancelledWithBookings: 0 };
     const future = await this.prisma.groupClass.findMany({
-      where: { seriesId, date: { gte: this.dayUtc(new Date()) } },
+      where: { seriesId, date: { gte: dayUtc(new Date()) } },
       orderBy: [{ date: 'asc' }, { start: 'asc' }],
     });
     let cancelledWithBookings = 0;
@@ -294,17 +283,15 @@ export class ScheduleService implements OnModuleInit, OnModuleDestroy {
 
   // Ядро генерации (P2.12): для каждого дня недели серии в окне
   // [max(startDate, сегодня), min(сегодня+horizonDays, endDate)] создаёт
-  // занятие-occurrence, если его ещё нет. Даты пропускаются (не
-  // отбрасывают серию ошибкой) с указанием причины: тренер
-  // недоступен/ушёл (P2.10) или время занято другой активностью (P2.7).
-  // Идемпотентно: повторный прогон добирает только недостающие даты.
+  // занятие-occurrence, если его ещё нет. Окно дат — чистая функция
+  // seriesWindowDates (P3.1). Даты пропускаются (не отбрасывают серию
+  // ошибкой) с указанием причины: тренер недоступен/ушёл (P2.10) или время
+  // занято другой активностью (P2.7). Идемпотентно: повторный прогон
+  // добирает только недостающие даты.
   private async generateOccurrences(series: { id: string; gymId: string; type: string; trainerId: string; zone: string; start: string; end: string; capacity: number; weekdays: number[]; startDate: Date; endDate: Date | null; horizonDays: number }) {
-    const today = this.dayUtc(new Date());
-    const horizonEnd = new Date(today.getTime() + series.horizonDays * 86_400_000);
-    const from = series.startDate > today ? series.startDate : today;
-    const to = series.endDate && series.endDate < horizonEnd ? series.endDate : horizonEnd;
     const result = { created: [] as string[], skipped: [] as { date: string; reason: string }[] };
-    if (from > to) return result;
+    const candidates = seriesWindowDates(series);
+    if (candidates.length === 0) return result;
 
     const [trainer, existing, trainerSlots, trainerClasses] = await Promise.all([
       this.prisma.trainer.findUnique({ where: { id: series.trainerId } }),
@@ -315,9 +302,7 @@ export class ScheduleService implements OnModuleInit, OnModuleDestroy {
     if (!trainer) return result;
 
     const existingDays = new Set(existing.map((c) => c.date.toISOString().slice(0, 10)));
-    const weekdays = new Set(series.weekdays);
-    for (let day = new Date(from); day.getTime() <= to.getTime(); day = new Date(day.getTime() + 86_400_000)) {
-      if (!weekdays.has(this.weekdayIndex(day))) continue;
+    for (const day of candidates) {
       const iso = day.toISOString().slice(0, 10);
       if (existingDays.has(iso)) continue;
 
@@ -362,7 +347,7 @@ export class ScheduleService implements OnModuleInit, OnModuleDestroy {
   // Запускается сразу при старте (чтобы горизонт заполнился до первого
   // тика) и далее поддерживает все живые серии.
   async topUpAllSeries(): Promise<number> {
-    const today = this.dayUtc(new Date());
+    const today = dayUtc(new Date());
     const list = await this.prisma.groupClassSeries.findMany({ where: { cancelledAt: null, OR: [{ endDate: null }, { endDate: { gte: today } }] } });
     let created = 0;
     for (const series of list) {
