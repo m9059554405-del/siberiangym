@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, Building2, Plus, ShieldCheck, X } from 'lucide-react'
 import { useTrainers } from '../../hooks/useClientApi'
 import { useAllClients } from '../../hooks/useStaffApi'
-import { useAllWorkoutLogs, useAssignTrainerGym, useTransactions, useTrainerGyms, useUnassignTrainerGym } from '../../hooks/useCeoApi'
+import { useAllWorkoutLogs, useAssignTrainerGym, useBulkTrainerClients, useBulkTrainerSlots, useSetTrainerAvailability, useTransactions, useTrainerGyms, useUnassignTrainerGym } from '../../hooks/useCeoApi'
 import { useNetworkGyms } from '../../hooks/useGymsApi'
 import { useGrantTrainerConsent, useTrainerConsent } from '../../hooks/useConsentsApi'
 import { tariffById } from '../../data/tariffs'
@@ -41,6 +41,42 @@ function TrainerConsentSection({ trainerId }: { trainerId: string }) {
 // Точки сети, на которых работает тренер (P1.3) — домашняя (где заведена
 // карточка) плюс любое число дополнительных, назначенных здесь. Список
 // доступных для назначения — вся сеть CEO, за вычетом уже назначенных.
+function TrainerAvailabilitySection({ trainerId, trainer }: { trainerId: string; trainer: { unavailableFrom: string | null; unavailableUntil: string | null; departedAt: string | null } }) {
+  const setAvailability = useSetTrainerAvailability(trainerId)
+  const bulkSlots = useBulkTrainerSlots(trainerId)
+  const bulkClients = useBulkTrainerClients(trainerId)
+  const { data: trainers } = useTrainers()
+  const [from, setFrom] = useState(trainer.unavailableFrom?.slice(0, 10) ?? '')
+  const [until, setUntil] = useState(trainer.unavailableUntil?.slice(0, 10) ?? '')
+  const [targetTrainerId, setTargetTrainerId] = useState('')
+  const others = (trainers ?? []).filter((t) => t.id !== trainerId && !t.departedAt)
+
+  return (
+    <Card>
+      <SectionTitle title="Отсутствие и уход" subtitle={trainer.departedAt ? 'Тренер отмечен как ушедший' : 'Массовая обработка расписания и подопечных'} />
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="text-sm">С <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="ml-1 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-2 py-1.5" /></label>
+          <label className="text-sm">По <input type="date" value={until} onChange={(e) => setUntil(e.target.value)} className="ml-1 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-2 py-1.5" /></label>
+          <Button size="sm" disabled={!from || !until || setAvailability.isPending} onClick={() => setAvailability.mutate({ mode: 'UNAVAILABLE', from, until })}>Отметить отсутствие</Button>
+          <Button size="sm" variant="secondary" disabled={setAvailability.isPending} onClick={() => setAvailability.mutate({ mode: 'ACTIVE' })}>Вернуть активность</Button>
+          <Button size="sm" variant="danger" disabled={!!trainer.departedAt || setAvailability.isPending} onClick={() => setAvailability.mutate({ mode: 'DEPARTED' })}>Зафиксировать уход</Button>
+        </div>
+        <div className="flex flex-wrap items-end gap-2 border-t border-[var(--border)] pt-3">
+          <select value={targetTrainerId} onChange={(e) => setTargetTrainerId(e.target.value)} className="rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-2.5 py-2 text-sm">
+            <option value="">Выбрать нового тренера…</option>
+            {others.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+          <Button size="sm" disabled={!targetTrainerId || bulkSlots.isPending} onClick={() => bulkSlots.mutate({ action: 'REASSIGN', targetTrainerId })}>Переназначить слоты</Button>
+          <Button size="sm" variant="secondary" disabled={bulkSlots.isPending} onClick={() => bulkSlots.mutate({ action: 'CANCEL' })}>Отменить слоты</Button>
+          <Button size="sm" disabled={!targetTrainerId || bulkClients.isPending} onClick={() => bulkClients.mutate({ action: 'REASSIGN', targetTrainerId })}>Переназначить подопечных</Button>
+          <Button size="sm" variant="secondary" disabled={bulkClients.isPending} onClick={() => bulkClients.mutate({ action: 'SELF' })}>Перевести взрослых на самостоятельные</Button>
+        </div>
+      </div>
+    </Card>
+  )
+}
+
 function TrainerGymsSection({ trainerId }: { trainerId: string }) {
   const { data } = useTrainerGyms(trainerId)
   const { data: networkGyms } = useNetworkGyms()
@@ -138,6 +174,7 @@ export function TrainerDetailPage() {
       </div>
 
       <TrainerGymsSection trainerId={trainer.id} />
+      <TrainerAvailabilitySection trainerId={trainer.id} trainer={trainer} />
       <TrainerConsentSection trainerId={trainer.id} />
 
       <Card>

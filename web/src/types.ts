@@ -167,6 +167,9 @@ export interface Trainer {
   competitionPhotos: TrainerCompetitionPhoto[]
   employmentType: EmploymentType | null
   revenueSharePercent: number | null
+  unavailableFrom: string | null
+  unavailableUntil: string | null
+  departedAt: string | null
   // Только из списка /trainers (P1.7): нужен CEO-фильтру «тренер работает
   // на выбранной точке» — домашняя ИЛИ дополнительная.
   additionalGyms?: { gymId: string }[]

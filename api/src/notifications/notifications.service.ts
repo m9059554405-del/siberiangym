@@ -21,6 +21,7 @@ const CHANNELS_BY_KIND: Record<string, NotificationChannel[]> = {
   // Отмена слота тренером/клиентом — «критичное» напоминание из бэклога:
   // SMS как fallback, если push-подписки нет.
   SLOT_CANCELLED: ['PUSH', 'EMAIL', 'SMS'],
+  TRAINER_CHANGED: ['PUSH', 'EMAIL'],
 };
 
 @Injectable()

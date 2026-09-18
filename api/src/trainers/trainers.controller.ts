@@ -3,6 +3,9 @@ import { Role } from '@prisma/client';
 import { TrainersService } from './trainers.service';
 import { CreateTrainerDto } from './dto/create-trainer.dto';
 import { CreateLoginDto } from './dto/create-login.dto';
+import { BulkClientsDto } from './dto/bulk-clients.dto';
+import { BulkSlotsDto } from './dto/bulk-slots.dto';
+import { SetAvailabilityDto } from './dto/set-availability.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -60,6 +63,24 @@ export class TrainersController {
   @Post(':id/gyms')
   assignToGym(@Param('id') id: string, @Body('gymId') gymId: string, @CurrentUser() user: JwtPayload) {
     return this.trainers.assignToGym(user, id, gymId);
+  }
+
+  @Roles(Role.CEO, Role.STAFF)
+  @Post(':id/availability')
+  setAvailability(@Param('id') id: string, @Body() dto: SetAvailabilityDto, @CurrentUser() user: JwtPayload) {
+    return this.trainers.setAvailability(user, id, dto);
+  }
+
+  @Roles(Role.CEO, Role.STAFF)
+  @Post(':id/slots/bulk')
+  bulkSlots(@Param('id') id: string, @Body() dto: BulkSlotsDto, @CurrentUser() user: JwtPayload) {
+    return this.trainers.bulkSlots(user, id, dto);
+  }
+
+  @Roles(Role.CEO, Role.STAFF)
+  @Post(':id/clients/bulk')
+  bulkClients(@Param('id') id: string, @Body() dto: BulkClientsDto, @CurrentUser() user: JwtPayload) {
+    return this.trainers.bulkClients(user, id, dto);
   }
 
   @Roles(Role.CEO)

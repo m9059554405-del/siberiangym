@@ -350,6 +350,22 @@ model Trainer {
   employmentType       EmploymentType? @map("employment_type")
   revenueSharePercent  Int?            @map("revenue_share_percent")
 
+  // Временное отсутствие (отпуск/болезнь, P2.10) — календарный диапазон
+  // включительно: в эти дни тренеру нельзя назначать новые персональные
+  // слоты и групповые занятия, а его будущие слоты разбираются массово
+  // (перенос другому тренеру или отмена с уведомлением клиентов).
+  // Оба поля всегда либо заполнены вместе, либо оба пустые (работает как
+  // обычно) — целостность держит сервис, а не БД, чтобы не плодить
+  // частично заполненные диапазоны из старых клиентов Prisma.
+  unavailableFrom DateTime? @map("unavailable_from") @db.Date
+  unavailableUntil DateTime? @map("unavailable_until") @db.Date
+  // Окончательно ушедший (P2.10): момент, когда CEO зафиксировал уход.
+  // Это не то же самое, что недоступность — уход необратим в рамках
+  // операционки (возврат = отдельное явное решение через ACTIVE), а логин
+  // тренера деактивируется (User.isActive=false), см. P3.8/P3.9 про то,
+  // почему деактивация, а не удаление.
+  departedAt DateTime? @map("departed_at")
+
   clients           Client[]
   workHours         TrainerWorkHour[]
   credentials       TrainerCredential[]

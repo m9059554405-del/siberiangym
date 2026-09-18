@@ -65,6 +65,16 @@ export class ScheduleService {
   // работает на нескольких площадках (P1.3), и слоты/группы в разных
   // gyms не должны пересекаться по времени. Проверяется при создании
   // любой новой активности тренера (слот или групповое занятие).
+  private assertTrainerAvailable(trainer: { departedAt: Date | null; unavailableFrom: Date | null; unavailableUntil: Date | null }, date: Date) {
+    const day = date.toISOString().slice(0, 10);
+    if (trainer.departedAt) throw new BadRequestException('Тренер больше не принимает новые занятия');
+    if (trainer.unavailableFrom && trainer.unavailableUntil) {
+      const from = trainer.unavailableFrom.toISOString().slice(0, 10);
+      const until = trainer.unavailableUntil.toISOString().slice(0, 10);
+      if (day >= from && day <= until) throw new BadRequestException('Тренер недоступен в выбранную дату');
+    }
+  }
+
   private async assertTrainerFreeAt(trainerId: string, range: TimeRange, what: string) {
     const [slots, classes] = await Promise.all([
       this.prisma.personalSlot.findMany({ where: { trainerId } }),
@@ -86,6 +96,7 @@ export class ScheduleService {
 
   async createGroupClass(actor: JwtPayload, dto: CreateGroupClassDto) {
     const trainer = await this.trainers.assertTrainerAtGym(dto.trainerId, actor.gymId);
+    this.assertTrainerAvailable(trainer, new Date(dto.date));
     await this.assertTrainerFreeAt(dto.trainerId, { date: new Date(dto.date), start: dto.start, end: dto.end }, 'Занятие');
     const gc = await this.prisma.groupClass.create({
       data: { gymId: actor.gymId, ...dto, date: new Date(dto.date) },
@@ -201,7 +212,8 @@ export class ScheduleService {
   }
 
   async createPersonalSlot(actor: JwtPayload, dto: CreatePersonalSlotDto) {
-    await this.trainers.assertTrainerAtGym(dto.trainerId, actor.gymId);
+    const trainer = await this.trainers.assertTrainerAtGym(dto.trainerId, actor.gymId);
+    this.assertTrainerAvailable(trainer, new Date(dto.date));
     await this.assertTrainerFreeAt(dto.trainerId, { date: new Date(dto.date), start: dto.start, end: dto.end }, 'Слот');
     return this.prisma.personalSlot.create({
       data: { gymId: actor.gymId, trainerId: dto.trainerId, date: new Date(dto.date), start: dto.start, end: dto.end, status: 'FREE' },

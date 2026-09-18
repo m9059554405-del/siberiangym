@@ -181,3 +181,33 @@ export function useCreateTrainerLogin(trainerId: string | undefined) {
     mutationFn: (dto: { email: string; password: string }) => api.post(`/trainers/${trainerId}/create-login`, dto),
   })
 }
+
+export function useSetTrainerAvailability(trainerId: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (dto: { mode: 'ACTIVE' | 'UNAVAILABLE' | 'DEPARTED'; from?: string; until?: string }) => api.post(`/trainers/${trainerId}/availability`, dto),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['trainers'] }),
+  })
+}
+
+export function useBulkTrainerSlots(trainerId: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (dto: { action: 'CANCEL' | 'REASSIGN'; targetTrainerId?: string; dateFrom?: string }) => api.post(`/trainers/${trainerId}/slots/bulk`, dto),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['trainers'] })
+      qc.invalidateQueries({ queryKey: ['personal-slots'] })
+    },
+  })
+}
+
+export function useBulkTrainerClients(trainerId: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (dto: { action: 'REASSIGN' | 'SELF'; targetTrainerId?: string }) => api.post(`/trainers/${trainerId}/clients/bulk`, dto),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['trainers'] })
+      qc.invalidateQueries({ queryKey: ['clients'] })
+    },
+  })
+}
