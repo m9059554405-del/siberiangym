@@ -2,6 +2,8 @@ import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { RequestPasswordResetDto } from './dto/request-password-reset.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { CreateStaffDto } from './dto/create-staff.dto';
 import { SwitchGymDto } from './dto/switch-gym.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -23,6 +25,18 @@ export class AuthController {
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.auth.login(dto.email, dto.password);
+  }
+
+  @Throttle({ default: { limit: 3, ttl: 900, blockDuration: 900 } })
+  @Post('request-password-reset')
+  requestPasswordReset(@Body() dto: RequestPasswordResetDto) {
+    return this.auth.requestPasswordReset(dto.email);
+  }
+
+  @Throttle({ default: { limit: 5, ttl: 900, blockDuration: 900 } })
+  @Post('reset-password')
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.auth.resetPassword(dto.token, dto.password);
   }
 
   // Смена активной точки сети (P1.1) — CEO переключается между Gym одной Network.

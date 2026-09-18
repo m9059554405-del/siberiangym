@@ -6,6 +6,8 @@ import { TrainerShell } from './layouts/TrainerShell'
 import { StaffShell } from './layouts/StaffShell'
 import { CeoShell } from './layouts/CeoShell'
 import { LoginPage } from './pages/LoginPage'
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
+import { ResetPasswordPage } from './pages/ResetPasswordPage'
 
 import { PaymentsPage } from './features/client/PaymentsPage'
 import { CalendarPage } from './features/client/CalendarPage'
@@ -64,6 +66,8 @@ export default function App() {
     <HashRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
 
         <Route element={<RootLayout />}>
           <Route path="/" element={<HomeRedirect />} />

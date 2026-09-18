@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Dumbbell, LogIn } from 'lucide-react'
 import { api, ApiError } from '../lib/api'
 import { useAuthStore } from '../store/useAuthStore'
@@ -79,6 +79,9 @@ export function LoginPage() {
           <Button type="submit" disabled={loading} className="mt-1 w-full justify-center">
             <LogIn size={15} /> {loading ? 'Входим…' : 'Войти'}
           </Button>
+          <Link to="/forgot-password" className="text-center text-sm text-[var(--accent-strong)] hover:underline">
+            Забыли пароль?
+          </Link>
         </form>
       </div>
     </div>

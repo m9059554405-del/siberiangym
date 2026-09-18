@@ -1,7 +1,10 @@
-import { ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { EmailService } from '../email/email.service';
 import { Role } from '@prisma/client';
 
 export interface JwtPayload {
@@ -17,6 +20,8 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
+    private readonly email: EmailService,
+    private readonly config: ConfigService,
   ) {}
 
   async hashPassword(plain: string): Promise<string> {
@@ -38,6 +43,51 @@ export class AuthService {
       accessToken: this.jwt.sign(payload),
       user: { id: user.id, email: user.email, role: user.role, gymId: user.gymId },
     };
+  }
+
+  // P3.5: запрашивающий не получает подтверждения существования email —
+  // одинаковый ответ защищает от перечисления аккаунтов. В БД хранится
+  // только SHA-256 хэш случайного одноразового токена, исходный токен
+  // отправляется по email и никогда не логируется.
+  async requestPasswordReset(email: string): Promise<{ ok: true }> {
+    const genericResponse = { ok: true } as const;
+    const user = await this.prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
+    if (!user || !user.isActive || !user.email) return genericResponse;
+
+    const rawToken = randomBytes(32).toString('hex');
+    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+    const ttlMinutes = this.config.get<number>('PASSWORD_RESET_TTL_MINUTES', 30);
+    const expiresAt = new Date(Date.now() + ttlMinutes * 60_000);
+
+    await this.prisma.$transaction([
+      this.prisma.passwordResetToken.updateMany({ where: { userId: user.id, usedAt: null }, data: { usedAt: new Date() } }),
+      this.prisma.passwordResetToken.create({ data: { userId: user.id, tokenHash, expiresAt } }),
+    ]);
+
+    const frontendUrl = this.config.get<string>('PUBLIC_APP_URL', '').replace(/\/$/, '');
+    const resetUrl = `${frontendUrl}/#/reset-password?token=${encodeURIComponent(rawToken)}`;
+    await this.email.send(
+      user.email,
+      'Сброс пароля — SiberianGym',
+      `Здравствуйте!\n\nЧтобы задать новый пароль, откройте ссылку:\n${resetUrl}\n\nСсылка действует ${ttlMinutes} минут и одноразовая. Если вы не запрашивали сброс, просто проигнорируйте это письмо.\n\nSiberianGym`,
+    );
+    return genericResponse;
+  }
+
+  async resetPassword(rawToken: string, password: string): Promise<{ ok: true }> {
+    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+    const token = await this.prisma.passwordResetToken.findUnique({ where: { tokenHash }, include: { user: true } });
+    if (!token || token.usedAt || token.expiresAt.getTime() <= Date.now() || !token.user.isActive) {
+      throw new BadRequestException('Ссылка сброса недействительна или истекла');
+    }
+
+    const passwordHash = await this.hashPassword(password);
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id: token.userId }, data: { passwordHash } }),
+      this.prisma.passwordResetToken.update({ where: { id: token.id }, data: { usedAt: new Date() } }),
+      this.prisma.passwordResetToken.updateMany({ where: { userId: token.userId, usedAt: null, id: { not: token.id } }, data: { usedAt: new Date() } }),
+    ]);
+    return { ok: true };
   }
 
   // Смена активной точки сети (P1.1) — CEO переключается между Gym одной

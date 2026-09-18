@@ -1,4 +1,4 @@
-import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { Role } from '@prisma/client';
@@ -10,9 +10,15 @@ import { AuthService } from './auth.service';
 const PASSWORD_HASH = bcrypt.hashSync('correct-horse', 4); // раунды ниже — тест не про скорость хэша
 
 function makeService(user: unknown) {
-  const prisma: any = { user: { findUnique: jest.fn().mockResolvedValue(user) } };
+  const prisma: any = {
+    user: { findUnique: jest.fn().mockResolvedValue(user), update: jest.fn() },
+    passwordResetToken: { updateMany: jest.fn(), create: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
+    $transaction: jest.fn().mockResolvedValue([]),
+  };
   const jwt = new JwtService({ secret: 'test-secret' });
-  return { service: new AuthService(prisma, jwt), prisma };
+  const email: any = { send: jest.fn() };
+  const config: any = { get: jest.fn().mockImplementation((_key: string, fallback: unknown) => fallback) };
+  return { service: new AuthService(prisma, jwt, email, config), prisma, email, config };
 }
 
 function userFixture(overrides: Record<string, unknown> = {}) {
@@ -52,6 +58,54 @@ describe('AuthService.login', () => {
   it('деактивированный пользователь (P2.10/P3.9) не входит даже с верным паролем', async () => {
     const { service } = makeService(userFixture({ isActive: false }));
     await expect(service.login('client@siberiangym.ru', 'correct-horse')).rejects.toThrow(UnauthorizedException);
+  });
+});
+
+describe('AuthService.password reset (P3.5)', () => {
+  it('не раскрывает существование неизвестного или отключённого email', async () => {
+    const { service, email, prisma } = makeService(null);
+    await expect(service.requestPasswordReset('nobody@example.com')).resolves.toEqual({ ok: true });
+    expect(email.send).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('создаёт одноразовый токен с хэшем и отправляет ссылку по email', async () => {
+    const { service, email, prisma } = makeService(userFixture({ email: 'person@example.com' }));
+    prisma.passwordResetToken.updateMany.mockResolvedValue({ count: 0 });
+    prisma.passwordResetToken.create.mockResolvedValue({ id: 'reset1' });
+
+    await expect(service.requestPasswordReset(' PERSON@example.com ')).resolves.toEqual({ ok: true });
+    expect(prisma.passwordResetToken.create).toHaveBeenCalledWith({ data: expect.objectContaining({ userId: 'user1', tokenHash: expect.stringMatching(/^[a-f0-9]{64}$/), expiresAt: expect.any(Date) }) });
+    expect(email.send).toHaveBeenCalledWith('person@example.com', expect.stringContaining('Сброс пароля'), expect.stringContaining('/#/reset-password?token='));
+  });
+
+  it('просроченный токен отклоняется', async () => {
+    const { service, prisma } = makeService(userFixture());
+    prisma.passwordResetToken.findUnique.mockResolvedValue({ id: 'reset1', userId: 'user1', usedAt: null, expiresAt: new Date(Date.now() - 1000), user: userFixture() });
+
+    await expect(service.resetPassword('a'.repeat(64), 'new-password')).rejects.toThrow(BadRequestException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('использованный токен нельзя применить повторно', async () => {
+    const { service, prisma } = makeService(userFixture());
+    prisma.passwordResetToken.findUnique.mockResolvedValue({ id: 'reset1', userId: 'user1', usedAt: new Date(), expiresAt: new Date(Date.now() + 60_000), user: userFixture() });
+
+    await expect(service.resetPassword('b'.repeat(64), 'new-password')).rejects.toThrow(BadRequestException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('валидный токен меняет пароль и помечает токен использованным одной транзакцией', async () => {
+    const { service, prisma } = makeService(userFixture());
+    prisma.passwordResetToken.findUnique.mockResolvedValue({ id: 'reset1', userId: 'user1', usedAt: null, expiresAt: new Date(Date.now() + 60_000), user: userFixture() });
+    prisma.user.update.mockReturnValue({ operation: 'user.update' });
+    prisma.passwordResetToken.update.mockReturnValue({ operation: 'token.update' });
+    prisma.passwordResetToken.updateMany.mockReturnValue({ operation: 'tokens.invalidate' });
+
+    await expect(service.resetPassword('c'.repeat(64), 'new-password')).resolves.toEqual({ ok: true });
+    expect(prisma.user.update).toHaveBeenCalledWith({ where: { id: 'user1' }, data: { passwordHash: expect.any(String) } });
+    expect(prisma.passwordResetToken.update).toHaveBeenCalledWith({ where: { id: 'reset1' }, data: { usedAt: expect.any(Date) } });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 });
 
