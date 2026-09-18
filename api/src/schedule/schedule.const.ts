@@ -18,3 +18,9 @@ export function startsAt(date: Date, time: string): Date {
 export function hoursBefore(target: Date, now = new Date()): number {
   return (target.getTime() - now.getTime()) / 3_600_000;
 }
+
+// P2.12: как часто диспетчер серий поддерживает скользящий горизонт —
+// добирает occurrence-занятия до series.horizonDays от сегодня. Точность
+// тут не минутная (в отличие от напоминалок P2.4): серия опаздывать не
+// может, занятие на дату создаётся заранее, поэтому редкий тик достаточен.
+export const SERIES_TOPUP_INTERVAL_MS = 6 * 60 * 60 * 1000;

@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { ScheduleService } from './schedule.service';
 import { CreateGroupClassDto } from './dto/create-group-class.dto';
+import { CreateGroupClassSeriesDto, UpdateGroupClassSeriesDto } from './dto/create-group-class-series.dto';
 import { CreatePersonalSlotDto } from './dto/create-personal-slot.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -23,6 +24,42 @@ export class ScheduleController {
   @Post('group-classes')
   createGroupClass(@Body() dto: CreateGroupClassDto, @CurrentUser() user: JwtPayload) {
     return this.schedule.createGroupClass(user, dto);
+  }
+
+  // Серии регулярных занятий (P2.12): список с будущими occurrence,
+  // создание шаблона с автогенерацией, редактирование (будущие occurrence
+  // без записей пересоздаются по новому шаблону), отмена серии
+  // (с уведомлением записанных клиентов) и ручная догенерация пропущенных
+  // дат в пределах горизонта. Только CEO/STAFF — клиенты видят результат
+  // как обычные занятия в GET /group-classes.
+  @Roles(Role.CEO, Role.STAFF)
+  @Get('group-class-series')
+  listSeries(@CurrentUser() user: JwtPayload) {
+    return this.schedule.listSeries(user);
+  }
+
+  @Roles(Role.CEO, Role.STAFF)
+  @Post('group-class-series')
+  createSeries(@Body() dto: CreateGroupClassSeriesDto, @CurrentUser() user: JwtPayload) {
+    return this.schedule.createSeries(user, dto);
+  }
+
+  @Roles(Role.CEO, Role.STAFF)
+  @Patch('group-class-series/:id')
+  updateSeries(@Param('id') id: string, @Body() dto: UpdateGroupClassSeriesDto, @CurrentUser() user: JwtPayload) {
+    return this.schedule.updateSeries(user, id, dto);
+  }
+
+  @Roles(Role.CEO, Role.STAFF)
+  @Delete('group-class-series/:id')
+  cancelSeries(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.schedule.cancelSeries(user, id);
+  }
+
+  @Roles(Role.CEO, Role.STAFF)
+  @Post('group-class-series/:id/regenerate')
+  regenerateSeries(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.schedule.regenerateSeries(user, id);
   }
 
   @Roles(Role.CEO, Role.STAFF, Role.CLIENT)

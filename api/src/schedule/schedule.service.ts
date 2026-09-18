@@ -1,9 +1,10 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActivityLogService } from '../activity-log/activity-log.service';
 import { EmailService } from '../email/email.service';
 import { CreateGroupClassDto } from './dto/create-group-class.dto';
+import { CreateGroupClassSeriesDto, UpdateGroupClassSeriesDto } from './dto/create-group-class-series.dto';
 import { CreatePersonalSlotDto } from './dto/create-personal-slot.dto';
 import type { JwtPayload } from '../auth/auth.service';
 import { SlotStatus } from '@prisma/client';
@@ -11,7 +12,7 @@ import { TrainersService } from '../trainers/trainers.service';
 import { GymsService } from '../gyms/gyms.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { startOfDay } from '../clients/membership.const';
-import { LATE_CANCEL_WINDOW_HOURS, hoursBefore, startsAt } from './schedule.const';
+import { LATE_CANCEL_WINDOW_HOURS, SERIES_TOPUP_INTERVAL_MS, hoursBefore, startsAt } from './schedule.const';
 import { overlaps, type TimeRange } from './time-overlap.util';
 
 // Резолвит clientId для self-service действий: клиент может действовать
@@ -27,7 +28,10 @@ async function resolveClientId(prisma: PrismaService, actor: JwtPayload, explici
 }
 
 @Injectable()
-export class ScheduleService {
+export class ScheduleService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(ScheduleService.name);
+  private topUpTimer: NodeJS.Timeout | null = null;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly activityLog: ActivityLogService,
@@ -66,13 +70,24 @@ export class ScheduleService {
   // gyms не должны пересекаться по времени. Проверяется при создании
   // любой новой активности тренера (слот или групповое занятие).
   private assertTrainerAvailable(trainer: { departedAt: Date | null; unavailableFrom: Date | null; unavailableUntil: Date | null }, date: Date) {
-    const day = date.toISOString().slice(0, 10);
-    if (trainer.departedAt) throw new BadRequestException('Тренер больше не принимает новые занятия');
+    const clash = this.trainerUnavailableOn(trainer, date);
+    if (clash === 'DEPARTED') throw new BadRequestException('Тренер больше не принимает новые занятия');
+    if (clash === 'UNAVAILABLE') throw new BadRequestException('Тренер недоступен в выбранную дату');
+  }
+
+  // Дата попадает в диапазон недоступности тренера (P2.10)? null — тренер
+  // работает. Небросающий вариант assertTrainerAvailable: генератор серий
+  // (P2.12) по тем же правилам не создаёт занятия, но молча пропускает
+  // дату с причиной, вместо обрыва всей серии ошибкой.
+  private trainerUnavailableOn(trainer: { departedAt: Date | null; unavailableFrom: Date | null; unavailableUntil: Date | null }, date: Date): 'DEPARTED' | 'UNAVAILABLE' | null {
+    if (trainer.departedAt) return 'DEPARTED';
     if (trainer.unavailableFrom && trainer.unavailableUntil) {
+      const day = date.toISOString().slice(0, 10);
       const from = trainer.unavailableFrom.toISOString().slice(0, 10);
       const until = trainer.unavailableUntil.toISOString().slice(0, 10);
-      if (day >= from && day <= until) throw new BadRequestException('Тренер недоступен в выбранную дату');
+      if (day >= from && day <= until) return 'UNAVAILABLE';
     }
+    return null;
   }
 
   private async assertTrainerFreeAt(trainerId: string, range: TimeRange, what: string) {
@@ -108,6 +123,265 @@ export class ScheduleService {
   // Запись на групповое занятие — с P0.2 идёт через POST /orders
   // (GROUP_CLASS_BOOKING) и применяется только после подтверждения оплаты
   // чеком, см. api/src/orders/orders.service.ts.
+
+  // --- Серии регулярных занятий (P2.12) ---
+
+  // Календарный день (UTC-полночь) из произвольного момента — вся система
+  // хранит даты занятий именно так.
+  private dayUtc(d: Date): Date {
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  }
+
+  // Индекс дня недели календарного дня: 0=Пн ... 6=Вс — нумерация
+  // TrainerWorkHour.day, а не JS getDay() (воскресенье = 0).
+  private weekdayIndex(date: Date): number {
+    return (date.getUTCDay() + 6) % 7;
+  }
+
+  async listSeries(actor: JwtPayload) {
+    const gymIds = await this.gymIdsForActor(actor);
+    return this.prisma.groupClassSeries.findMany({
+      where: { gymId: { in: gymIds } },
+      include: {
+        trainer: { select: { id: true, name: true } },
+        // Будущие occurrence серии с числом записей — этого достаточно UI,
+        // чтобы показать «сколько занятий впереди» и «у скольких есть
+        // записи клиентов» без отдельного запроса.
+        occurrences: {
+          where: { date: { gte: this.dayUtc(new Date()) } },
+          orderBy: [{ date: 'asc' }, { start: 'asc' }],
+          select: { id: true, date: true, start: true, end: true, capacity: true, _count: { select: { bookings: true } } },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async createSeries(actor: JwtPayload, dto: CreateGroupClassSeriesDto) {
+    const trainer = await this.trainers.assertTrainerAtGym(dto.trainerId, actor.gymId);
+    this.assertTrainerAvailable(trainer, new Date(dto.startDate));
+    const startDate = new Date(dto.startDate);
+    const endDate = dto.endDate ? new Date(dto.endDate) : null;
+    if (endDate && endDate < startDate) throw new BadRequestException('Дата конца серии раньше даты начала');
+    const series = await this.prisma.groupClassSeries.create({
+      data: {
+        gymId: actor.gymId,
+        type: dto.type,
+        trainerId: dto.trainerId,
+        zone: dto.zone,
+        start: dto.start,
+        end: dto.end,
+        capacity: dto.capacity,
+        weekdays: dto.weekdays,
+        startDate,
+        endDate,
+        horizonDays: dto.horizonDays ?? 28,
+      },
+    });
+    const generation = await this.generateOccurrences(series);
+    await this.activityLog.log(
+      actor,
+      'Создал серию групповых занятий',
+      dto.type,
+      `${dto.start}–${dto.end}, дни недели (0=Пн): ${dto.weekdays.join(', ')}; занятий создано: ${generation.created.length}, пропущено: ${generation.skipped.length}`,
+    );
+    return { series, generation };
+  }
+
+  private async findSeriesForActor(actor: JwtPayload, seriesId: string) {
+    const gymIds = await this.gymIdsForActor(actor);
+    const series = await this.prisma.groupClassSeries.findFirst({ where: { id: seriesId, gymId: { in: gymIds } } });
+    if (!series) throw new NotFoundException('Серия не найдена');
+    return series;
+  }
+
+  // Семантика редактирования серии (P2.12, «что происходит с записями
+  // клиентов»): будущие occurrence БЕЗ записей удаляются и пересоздаются
+  // по новому шаблону; occurrence с записями не трогаем — клиент купил
+  // конкретное занятие, оно остаётся «материализованным» исключением
+  // (дальнейшая генерация дату с занятием серии пропускает).
+  async updateSeries(actor: JwtPayload, seriesId: string, dto: UpdateGroupClassSeriesDto) {
+    const series = await this.findSeriesForActor(actor, seriesId);
+    if (series.cancelledAt) throw new BadRequestException('Серия отменена — создайте новую');
+    if (dto.trainerId && dto.trainerId !== series.trainerId) {
+      await this.trainers.assertTrainerAtGym(dto.trainerId, series.gymId);
+    }
+    const startDate = dto.startDate ? new Date(dto.startDate) : series.startDate;
+    const endDate = dto.endDate === null ? null : dto.endDate ? new Date(dto.endDate) : series.endDate;
+    if (endDate && endDate < startDate) throw new BadRequestException('Дата конца серии раньше даты начала');
+
+    const removed = await this.prisma.groupClass.deleteMany({
+      where: { seriesId, date: { gte: this.dayUtc(new Date()) }, bookings: { none: {} } },
+    });
+    const updated = await this.prisma.groupClassSeries.update({
+      where: { id: seriesId },
+      data: {
+        ...(dto.type !== undefined ? { type: dto.type } : {}),
+        ...(dto.trainerId !== undefined ? { trainerId: dto.trainerId } : {}),
+        ...(dto.zone !== undefined ? { zone: dto.zone } : {}),
+        ...(dto.start !== undefined ? { start: dto.start } : {}),
+        ...(dto.end !== undefined ? { end: dto.end } : {}),
+        ...(dto.capacity !== undefined ? { capacity: dto.capacity } : {}),
+        ...(dto.weekdays !== undefined ? { weekdays: dto.weekdays } : {}),
+        ...(dto.startDate !== undefined ? { startDate } : {}),
+        ...(dto.endDate !== undefined ? { endDate } : {}),
+        ...(dto.horizonDays !== undefined ? { horizonDays: dto.horizonDays } : {}),
+      },
+    });
+    const generation = await this.generateOccurrences(updated);
+    await this.activityLog.log(
+      actor,
+      'Изменил серию групповых занятий',
+      updated.type,
+      `будущих без записей удалено: ${removed.count}, создано: ${generation.created.length}, пропущено: ${generation.skipped.length}`,
+    );
+    return { series: updated, removedUnbooked: removed.count, generation };
+  }
+
+  // Отмена серии целиком (P2.12): шаблон перестаёт генерировать
+  // (cancelledAt), будущие occurrence без записей удаляются молча, с
+  // записями — отменяются с уведомлением каждого клиента (возврат денег —
+  // отдельный ручной процесс через P0.7, автоматом не запускаем).
+  async cancelSeries(actor: JwtPayload, seriesId: string) {
+    const series = await this.findSeriesForActor(actor, seriesId);
+    if (series.cancelledAt) return { series, removedOccurrences: 0, cancelledWithBookings: 0 };
+    const future = await this.prisma.groupClass.findMany({
+      where: { seriesId, date: { gte: this.dayUtc(new Date()) } },
+      orderBy: [{ date: 'asc' }, { start: 'asc' }],
+    });
+    let cancelledWithBookings = 0;
+    for (const gc of future) {
+      const bookings = await this.prisma.groupClassBooking.findMany({ where: { groupClassId: gc.id } });
+      if (bookings.length > 0) {
+        for (const b of bookings) {
+          await this.notifications.notify(
+            b.clientId,
+            'GROUP_CLASS_CANCELLED',
+            'Занятие отменено',
+            `«${gc.type}» ${gc.date.toISOString().slice(0, 10)} ${gc.start} отменено вместе со всей серией. Записываться на другие занятия можно в приложении; за возвратом оплаты обратитесь к администратору клуба.`,
+            gc.id,
+          );
+        }
+        cancelledWithBookings++;
+      }
+      await this.prisma.groupClass.delete({ where: { id: gc.id } });
+    }
+    const updated = await this.prisma.groupClassSeries.update({ where: { id: seriesId }, data: { cancelledAt: new Date() } });
+    await this.activityLog.log(
+      actor,
+      'Отменил серию групповых занятий',
+      series.type,
+      `будущих занятий удалено: ${future.length}, из них с записями клиентов: ${cancelledWithBookings}`,
+    );
+    return { series: updated, removedOccurrences: future.length, cancelledWithBookings };
+  }
+
+  // Ручная догенерация в пределах горизонта: CEO нажимает после того, как
+  // обстоятельства изменились (тренер вернулся из отпуска, освободилось
+  // пересекавшееся время) — даты, раньше пропущенные, добираются.
+  async regenerateSeries(actor: JwtPayload, seriesId: string) {
+    const series = await this.findSeriesForActor(actor, seriesId);
+    if (series.cancelledAt) throw new BadRequestException('Серия отменена');
+    const generation = await this.generateOccurrences(series);
+    await this.activityLog.log(
+      actor,
+      'Перегенерировал занятия серии',
+      series.type,
+      `создано: ${generation.created.length}, пропущено: ${generation.skipped.length}`,
+    );
+    return generation;
+  }
+
+  // Ядро генерации (P2.12): для каждого дня недели серии в окне
+  // [max(startDate, сегодня), min(сегодня+horizonDays, endDate)] создаёт
+  // занятие-occurrence, если его ещё нет. Даты пропускаются (не
+  // отбрасывают серию ошибкой) с указанием причины: тренер
+  // недоступен/ушёл (P2.10) или время занято другой активностью (P2.7).
+  // Идемпотентно: повторный прогон добирает только недостающие даты.
+  private async generateOccurrences(series: { id: string; gymId: string; type: string; trainerId: string; zone: string; start: string; end: string; capacity: number; weekdays: number[]; startDate: Date; endDate: Date | null; horizonDays: number }) {
+    const today = this.dayUtc(new Date());
+    const horizonEnd = new Date(today.getTime() + series.horizonDays * 86_400_000);
+    const from = series.startDate > today ? series.startDate : today;
+    const to = series.endDate && series.endDate < horizonEnd ? series.endDate : horizonEnd;
+    const result = { created: [] as string[], skipped: [] as { date: string; reason: string }[] };
+    if (from > to) return result;
+
+    const [trainer, existing, trainerSlots, trainerClasses] = await Promise.all([
+      this.prisma.trainer.findUnique({ where: { id: series.trainerId } }),
+      this.prisma.groupClass.findMany({ where: { seriesId: series.id }, select: { date: true } }),
+      this.prisma.personalSlot.findMany({ where: { trainerId: series.trainerId } }),
+      this.prisma.groupClass.findMany({ where: { trainerId: series.trainerId } }),
+    ]);
+    if (!trainer) return result;
+
+    const existingDays = new Set(existing.map((c) => c.date.toISOString().slice(0, 10)));
+    const weekdays = new Set(series.weekdays);
+    for (let day = new Date(from); day.getTime() <= to.getTime(); day = new Date(day.getTime() + 86_400_000)) {
+      if (!weekdays.has(this.weekdayIndex(day))) continue;
+      const iso = day.toISOString().slice(0, 10);
+      if (existingDays.has(iso)) continue;
+
+      const unavailable = this.trainerUnavailableOn(trainer, day);
+      if (unavailable) {
+        result.skipped.push({ date: iso, reason: unavailable === 'DEPARTED' ? 'Тренер ушёл' : 'Тренер недоступен (отпуск/болезнь)' });
+        continue;
+      }
+      const range = { date: day, start: series.start, end: series.end };
+      const slotClash = trainerSlots.find((s) => overlaps(range, { date: s.date, start: s.start, end: s.end }));
+      if (slotClash) {
+        result.skipped.push({ date: iso, reason: `Время занято персональным слотом ${slotClash.start}–${slotClash.end}` });
+        continue;
+      }
+      const classClash = trainerClasses.find((c) => overlaps(range, { date: c.date, start: c.start, end: c.end }));
+      if (classClash) {
+        result.skipped.push({ date: iso, reason: `Пересекается с «${classClash.type}» ${classClash.start}–${classClash.end}` });
+        continue;
+      }
+
+      await this.prisma.groupClass.create({
+        data: {
+          gymId: series.gymId,
+          seriesId: series.id,
+          type: series.type,
+          trainerId: series.trainerId,
+          zone: series.zone,
+          date: day,
+          start: series.start,
+          end: series.end,
+          capacity: series.capacity,
+        },
+      });
+      existingDays.add(iso);
+      result.created.push(iso);
+    }
+    return result;
+  }
+
+  // Диспетчер скользящего горизонта (P2.12): без планировщика в проекте —
+  // лёгкий интервал в API-процессе (как диспетчер напоминалок P2.4).
+  // Запускается сразу при старте (чтобы горизонт заполнился до первого
+  // тика) и далее поддерживает все живые серии.
+  async topUpAllSeries(): Promise<number> {
+    const today = this.dayUtc(new Date());
+    const list = await this.prisma.groupClassSeries.findMany({ where: { cancelledAt: null, OR: [{ endDate: null }, { endDate: { gte: today } }] } });
+    let created = 0;
+    for (const series of list) {
+      const result = await this.generateOccurrences(series);
+      created += result.created.length;
+    }
+    return created;
+  }
+
+  onModuleInit() {
+    this.topUpAllSeries().catch((err) => this.logger.error(`Стартовая догенерация серий упала: ${(err as Error).message}`));
+    this.topUpTimer = setInterval(() => {
+      this.topUpAllSeries().catch((err) => this.logger.error(`Тик догенерации серий упал: ${(err as Error).message}`));
+    }, SERIES_TOPUP_INTERVAL_MS);
+  }
+
+  onModuleDestroy() {
+    if (this.topUpTimer) clearInterval(this.topUpTimer);
+  }
 
   async cancelGroupClassBooking(actor: JwtPayload, classId: string, explicitClientId?: string) {
     const clientId = await resolveClientId(this.prisma, actor, explicitClientId);

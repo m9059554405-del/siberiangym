@@ -38,6 +38,7 @@ import { MaintenancePage } from './features/ceo/MaintenancePage'
 import { ReportOffersPage } from './features/ceo/ReportOffersPage'
 import { ActivityLogPage } from './features/ceo/ActivityLogPage'
 import { GymsPage } from './features/ceo/GymsPage'
+import { SeriesPage } from './features/ceo/SeriesPage'
 
 const ROLE_HOME: Record<Role, string> = {
   CLIENT: '/client/payments',
@@ -127,7 +128,8 @@ export default function App() {
           >
             <Route index element={<TrainerLoadPage />} />
             <Route path="trainers/:trainerId" element={<TrainerDetailPage />} />
-          <Route path="attendance" element={<AttendancePage />} />
+            <Route path="attendance" element={<AttendancePage />} />
+            <Route path="series" element={<SeriesPage />} />
           <Route path="checkins" element={<CheckinsPage />} />
           <Route path="revenue" element={<RevenuePage />} />
             <Route path="clients" element={<ClientBasePage />} />

@@ -21,6 +21,9 @@ const CHANNELS_BY_KIND: Record<string, NotificationChannel[]> = {
   // Отмена слота тренером/клиентом — «критичное» напоминание из бэклога:
   // SMS как fallback, если push-подписки нет.
   SLOT_CANCELLED: ['PUSH', 'EMAIL', 'SMS'],
+  // Отмена группового занятия вместе с серией (P2.12) — тоже критичное:
+  // клиент мог купить занятие заранее, деньги возвращаются вручную.
+  GROUP_CLASS_CANCELLED: ['PUSH', 'EMAIL', 'SMS'],
   TRAINER_CHANGED: ['PUSH', 'EMAIL'],
 };
 

@@ -74,6 +74,7 @@ model Gym {
   trainers           Trainer[]
   exercises          Exercise[]
   groupClasses       GroupClass[]
+  groupClassSeries   GroupClassSeries[]
   personalSlots      PersonalSlot[]
   lockers            Locker[]
   catalogItems       CatalogItem[]
@@ -371,6 +372,7 @@ model Trainer {
   credentials       TrainerCredential[]
   competitionPhotos TrainerCompetitionPhoto[]
   groupClasses      GroupClass[]
+  groupClassSeries  GroupClassSeries[]
   personalSlots     PersonalSlot[]
   transactions      Transaction[]
   consentRecords    ConsentRecord[]
@@ -575,12 +577,59 @@ model GroupClass {
   end       String
   capacity  Int
 
+  // P2.12: занятие-occurrence, сгенерированное серией GroupClassSeries;
+  // null — занятие создано вручную на конкретную дату (как раньше).
+  // Identity occurrence = (seriesId, date): при генерации дата с уже
+  // существующим занятием серии пропускается, поэтому occurrence с
+  // записями клиентов после редактирования серии не дублируется новым
+  // временем — он «материализован» (клиент купил именно это занятие).
+  seriesId String?           @map("series_id")
+  series   GroupClassSeries? @relation(fields: [seriesId], references: [id])
+
   bookings GroupClassBooking[]
   waitlist GroupClassWaitlistEntry[]
 
   @@index([gymId])
   @@index([trainerId])
+  @@index([seriesId, date])
   @@map("group_classes")
+}
+
+// Шаблон еженедельного расписания (P2.12): CEO/STAFF задаёт правило
+// («Йога, Пн и Чт 19:00–20:00, зал 2»), а конкретные занятия-occurrence
+// (GroupClass с seriesId) генерируются автоматически на настраиваемый
+// горизонт вперёд — при создании серии, при каждом тике диспетчера
+// (скользящее окно) и по запросу /regenerate. Дни недели нумеруются как
+// TrainerWorkHour.day (0=Пн ... 6=Вс). Отмена серии мягкая (cancelledAt):
+// шаблон перестаёт генерировать, будущие occurrence без записей удаляются,
+// с записями — отменяются с уведомлением клиентов (записи не переносятся
+// автоматически: возврат денег — отдельный ручной процесс P0.7).
+model GroupClassSeries {
+  id        String  @id @default(cuid())
+  gymId     String  @map("gym_id")
+  gym       Gym     @relation(fields: [gymId], references: [id])
+  type      String
+  trainerId String  @map("trainer_id")
+  trainer   Trainer @relation(fields: [trainerId], references: [id])
+  zone      String
+  start     String // "HH:MM"
+  end       String
+  capacity  Int
+  weekdays  Int[] // 0=Пн ... 6=Вс — как TrainerWorkHour.day
+  // Серия действует с startDate по endDate включительно; endDate null —
+  // бессрочно (пока не отменят). Оба поля — календарные дни UTC-полночь.
+  startDate   DateTime  @map("start_date") @db.Date
+  endDate     DateTime? @map("end_date") @db.Date
+  // Глубина скользящего горизонта генерации от сегодняшнего дня.
+  horizonDays Int       @default(28) @map("horizon_days")
+  cancelledAt DateTime? @map("cancelled_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  occurrences GroupClass[]
+
+  @@index([gymId])
+  @@index([trainerId])
+  @@map("group_class_series")
 }
 
 model GroupClassBooking {

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
-import type { DirectorMessage, EmploymentType, Gym, MembershipPricing, OfferAudience, Trainer, TransactionCategory, WorkoutLogEntry } from '../types'
+import type { DirectorMessage, EmploymentType, Gym, GroupClassSeries, MembershipPricing, OfferAudience, Trainer, TransactionCategory, WorkoutLogEntry } from '../types'
 
 // Точки сети, на которых работает тренер (P1.3) — домашняя (создана там)
 // плюс дополнительные, назначенные CEO.
@@ -249,5 +249,72 @@ export function useBulkTrainerClients(trainerId: string | undefined) {
       qc.invalidateQueries({ queryKey: ['trainers'] })
       qc.invalidateQueries({ queryKey: ['clients'] })
     },
+  })
+}
+
+// Серии регулярных групповых занятий (P2.12): шаблон + автогенерация
+// occurrence на горизонт вперёд. Результат генерации (созданные и
+// пропущенные даты с причинами) показывается в UI сразу после действия.
+export interface SeriesGenerationResult {
+  created: string[]
+  skipped: { date: string; reason: string }[]
+}
+
+export interface SeriesMutationDto {
+  type?: string
+  trainerId?: string
+  zone?: string
+  start?: string
+  end?: string
+  capacity?: number
+  weekdays?: number[]
+  startDate?: string
+  endDate?: string | null
+  horizonDays?: number
+}
+
+function useInvalidateSeries() {
+  const qc = useQueryClient()
+  return () => {
+    qc.invalidateQueries({ queryKey: ['group-class-series'] })
+    qc.invalidateQueries({ queryKey: ['group-classes'] })
+  }
+}
+
+export function useGroupClassSeries() {
+  return useQuery({ queryKey: ['group-class-series'], queryFn: () => api.get<GroupClassSeries[]>('/group-class-series') })
+}
+
+export function useCreateGroupClassSeries() {
+  const invalidate = useInvalidateSeries()
+  return useMutation({
+    mutationFn: (dto: SeriesMutationDto) => api.post<{ series: GroupClassSeries; generation: SeriesGenerationResult }>('/group-class-series', dto),
+    onSuccess: invalidate,
+  })
+}
+
+export function useUpdateGroupClassSeries() {
+  const invalidate = useInvalidateSeries()
+  return useMutation({
+    mutationFn: (vars: { id: string; dto: SeriesMutationDto }) =>
+      api.patch<{ series: GroupClassSeries; removedUnbooked: number; generation: SeriesGenerationResult }>(`/group-class-series/${vars.id}`, vars.dto),
+    onSuccess: invalidate,
+  })
+}
+
+export function useCancelGroupClassSeries() {
+  const invalidate = useInvalidateSeries()
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.delete<{ series: GroupClassSeries; removedOccurrences: number; cancelledWithBookings: number }>(`/group-class-series/${id}`),
+    onSuccess: invalidate,
+  })
+}
+
+export function useRegenerateGroupClassSeries() {
+  const invalidate = useInvalidateSeries()
+  return useMutation({
+    mutationFn: (id: string) => api.post<SeriesGenerationResult>(`/group-class-series/${id}/regenerate`),
+    onSuccess: invalidate,
   })
 }

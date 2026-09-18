@@ -350,6 +350,8 @@ export interface GroupClassWaitlistEntry {
 export interface GroupClass {
   id: string
   gymId: string
+  // P2.12: занятие-occurrence из серии (id шаблона), null — создано вручную.
+  seriesId: string | null
   type: string
   trainerId: string
   trainer?: Trainer
@@ -360,6 +362,36 @@ export interface GroupClass {
   capacity: number
   bookings: GroupClassBooking[]
   waitlist?: GroupClassWaitlistEntry[]
+}
+
+// Серия регулярных занятий (P2.12): шаблон еженедельного расписания —
+// конкретные GroupClass (occurrence) генерируются автоматически от
+// startDate на horizonDays вперёд, список будущих приходит в occurrences.
+export interface SeriesOccurrence {
+  id: string
+  date: string
+  start: string
+  end: string
+  capacity: number
+  _count: { bookings: number }
+}
+export interface GroupClassSeries {
+  id: string
+  gymId: string
+  type: string
+  trainerId: string
+  trainer?: { id: string; name: string }
+  zone: string
+  start: string
+  end: string
+  capacity: number
+  weekdays: number[] // 0=Пн ... 6=Вс
+  startDate: string
+  endDate: string | null
+  horizonDays: number
+  cancelledAt: string | null
+  createdAt: string
+  occurrences: SeriesOccurrence[]
 }
 
 export interface PersonalSlot {
