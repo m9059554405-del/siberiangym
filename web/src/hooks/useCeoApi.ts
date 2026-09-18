@@ -4,6 +4,46 @@ import type { DirectorMessage, EmploymentType, Gym, MembershipPricing, OfferAudi
 
 // Точки сети, на которых работает тренер (P1.3) — домашняя (создана там)
 // плюс дополнительные, назначенные CEO.
+export interface CredentialAlert {
+  id: string
+  trainerId: string
+  title: string
+  issuedBy: string | null
+  year: number | null
+  expiresAt: string
+  isRequired: boolean
+  trainer: { id: string; name: string }
+  status: 'EXPIRED' | 'EXPIRING_SOON'
+}
+
+export function useCredentialAlerts(days = 30) {
+  return useQuery({ queryKey: ['trainer-credential-alerts', days], queryFn: () => api.get<CredentialAlert[]>(`/trainers/credential-alerts?days=${days}`) })
+}
+
+export function useCreateTrainerCredential(trainerId: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (dto: { title: string; issuedBy?: string; year?: number; expiresAt?: string; isRequired?: boolean }) => api.post(`/trainers/${trainerId}/credentials`, dto),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['trainers'] }); qc.invalidateQueries({ queryKey: ['trainer-credential-alerts'] }) },
+  })
+}
+
+export function useUpdateTrainerCredential(trainerId: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (vars: { id: string; title?: string; issuedBy?: string; year?: number; expiresAt?: string | null; isRequired?: boolean }) => api.patch(`/trainers/${trainerId}/credentials/${vars.id}`, vars),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['trainers'] }); qc.invalidateQueries({ queryKey: ['trainer-credential-alerts'] }) },
+  })
+}
+
+export function useDeleteTrainerCredential(trainerId: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/trainers/${trainerId}/credentials/${id}`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['trainers'] }); qc.invalidateQueries({ queryKey: ['trainer-credential-alerts'] }) },
+  })
+}
+
 export function useTrainerGyms(trainerId: string | undefined) {
   return useQuery({
     queryKey: ['trainers', trainerId, 'gyms'],

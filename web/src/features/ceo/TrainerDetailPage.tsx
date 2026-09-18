@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, Building2, Plus, ShieldCheck, X } from 'lucide-react'
 import { useTrainers } from '../../hooks/useClientApi'
+import { useCreateTrainerCredential, useDeleteTrainerCredential, useUpdateTrainerCredential } from '../../hooks/useCeoApi'
 import { useAllClients } from '../../hooks/useStaffApi'
 import { useAllWorkoutLogs, useAssignTrainerGym, useBulkTrainerClients, useBulkTrainerSlots, useSetTrainerAvailability, useTransactions, useTrainerGyms, useUnassignTrainerGym } from '../../hooks/useCeoApi'
 import { useNetworkGyms } from '../../hooks/useGymsApi'
@@ -9,8 +10,8 @@ import { useGrantTrainerConsent, useTrainerConsent } from '../../hooks/useConsen
 import { tariffById } from '../../data/tariffs'
 import { Avatar } from '../../components/ui/Avatar'
 import { Badge, Button, Card, EmptyState, SectionTitle, StatTile } from '../../components/ui/Primitives'
-import { formatMoney, getInitials } from '../../lib/format'
-import type { ClientFormat, EmploymentType, MembershipStatus } from '../../types'
+import { formatDateLong, formatMoney, getInitials } from '../../lib/format'
+import type { ClientFormat, EmploymentType, MembershipStatus, Trainer } from '../../types'
 
 const FORMAT_LABEL: Record<ClientFormat, string> = { PERSONAL: 'Персонально', GROUP: 'Группа', SELF: 'Самостоятельно' }
 const STATUS_TONE: Record<MembershipStatus, 'success' | 'warning' | 'danger'> = { ACTIVE: 'success', FROZEN: 'warning', EXPIRED: 'danger' }
@@ -71,6 +72,47 @@ function TrainerAvailabilitySection({ trainerId, trainer }: { trainerId: string;
           <Button size="sm" variant="secondary" disabled={bulkSlots.isPending} onClick={() => bulkSlots.mutate({ action: 'CANCEL' })}>Отменить слоты</Button>
           <Button size="sm" disabled={!targetTrainerId || bulkClients.isPending} onClick={() => bulkClients.mutate({ action: 'REASSIGN', targetTrainerId })}>Переназначить подопечных</Button>
           <Button size="sm" variant="secondary" disabled={bulkClients.isPending} onClick={() => bulkClients.mutate({ action: 'SELF' })}>Перевести взрослых на самостоятельные</Button>
+        </div>
+      </div>
+    </Card>
+  )
+}
+
+function TrainerCredentialsSection({ trainerId, credentials }: { trainerId: string; credentials: Trainer['credentials'] }) {
+  const create = useCreateTrainerCredential(trainerId)
+  const update = useUpdateTrainerCredential(trainerId)
+  const remove = useDeleteTrainerCredential(trainerId)
+  const [title, setTitle] = useState('')
+  const [expiresAt, setExpiresAt] = useState('')
+  const [isRequired, setIsRequired] = useState(false)
+
+  return (
+    <Card>
+      <SectionTitle title="Сертификаты" subtitle="Срок действия контролируется за 30 дней до истечения; просрочка только предупреждает CEO" />
+      <div className="flex flex-col gap-2">
+        {credentials.map((credential) => {
+          const expired = credential.expiresAt && new Date(credential.expiresAt) < new Date()
+          const soon = credential.expiresAt && !expired && new Date(credential.expiresAt).getTime() <= Date.now() + 30 * 86400000
+          return (
+            <div key={credential.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[var(--surface-sunken)] px-3 py-2">
+              <div>
+                <div className="text-sm font-medium">{credential.title} {credential.isRequired && <Badge tone="accent">обязательный</Badge>}</div>
+                <div className="text-xs text-[var(--text-faint)]">{credential.issuedBy ?? ''} {credential.year ? `· ${credential.year}` : ''}{credential.expiresAt ? ` · до ${formatDateLong(credential.expiresAt)}` : ' · срок не указан'}</div>
+              </div>
+              <div className="flex items-center gap-2">
+                {expired && <Badge tone="danger">просрочен</Badge>}
+                {soon && <Badge tone="warning">истекает скоро</Badge>}
+                {credential.expiresAt && <Button size="sm" variant="ghost" onClick={() => update.mutate({ id: credential.id, expiresAt: null })}>Сбросить срок</Button>}
+                <Button size="sm" variant="danger" onClick={() => remove.mutate(credential.id)} disabled={remove.isPending}>Удалить</Button>
+              </div>
+            </div>
+          )
+        })}
+        <div className="flex flex-wrap items-end gap-2 border-t border-[var(--border)] pt-3">
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Название сертификата" className="min-w-48 flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-2.5 py-2 text-sm" />
+          <input type="date" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} className="rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-2.5 py-2 text-sm" />
+          <label className="flex items-center gap-1.5 text-sm"><input type="checkbox" checked={isRequired} onChange={(e) => setIsRequired(e.target.checked)} /> обязательный</label>
+          <Button size="sm" disabled={!title.trim() || create.isPending} onClick={() => create.mutate({ title: title.trim(), expiresAt: expiresAt || undefined, isRequired }, { onSuccess: () => { setTitle(''); setExpiresAt(''); setIsRequired(false) } })}>Добавить</Button>
         </div>
       </div>
     </Card>
@@ -174,6 +216,7 @@ export function TrainerDetailPage() {
       </div>
 
       <TrainerGymsSection trainerId={trainer.id} />
+      <TrainerCredentialsSection trainerId={trainer.id} credentials={trainer.credentials} />
       <TrainerAvailabilitySection trainerId={trainer.id} trainer={trainer} />
       <TrainerConsentSection trainerId={trainer.id} />
 

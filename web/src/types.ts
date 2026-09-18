@@ -143,6 +143,8 @@ export interface TrainerCredential {
   title: string
   issuedBy: string | null
   year: number | null
+  expiresAt: string | null
+  isRequired: boolean
 }
 export interface TrainerCompetitionPhoto {
   id: string

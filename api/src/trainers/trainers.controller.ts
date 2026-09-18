@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { TrainersService } from './trainers.service';
 import { CreateTrainerDto } from './dto/create-trainer.dto';
@@ -6,6 +6,7 @@ import { CreateLoginDto } from './dto/create-login.dto';
 import { BulkClientsDto } from './dto/bulk-clients.dto';
 import { BulkSlotsDto } from './dto/bulk-slots.dto';
 import { SetAvailabilityDto } from './dto/set-availability.dto';
+import { CreateCredentialDto, UpdateCredentialDto } from './dto/credential.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -35,9 +36,33 @@ export class TrainersController {
     return this.trainers.findMyClients(user);
   }
 
+  @Roles(Role.CEO)
+  @Get('credential-alerts')
+  credentialAlerts(@CurrentUser() user: JwtPayload, @Query('days') days?: string) {
+    return this.trainers.listCredentialAlerts(user, days === undefined ? 30 : Number(days));
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
     return this.trainers.findOne(user, id);
+  }
+
+  @Roles(Role.CEO, Role.STAFF)
+  @Post(':id/credentials')
+  createCredential(@Param('id') id: string, @Body() dto: CreateCredentialDto, @CurrentUser() user: JwtPayload) {
+    return this.trainers.createCredential(user, id, dto);
+  }
+
+  @Roles(Role.CEO, Role.STAFF)
+  @Patch(':id/credentials/:credentialId')
+  updateCredential(@Param('id') id: string, @Param('credentialId') credentialId: string, @Body() dto: UpdateCredentialDto, @CurrentUser() user: JwtPayload) {
+    return this.trainers.updateCredential(user, id, credentialId, dto);
+  }
+
+  @Roles(Role.CEO, Role.STAFF)
+  @Delete(':id/credentials/:credentialId')
+  deleteCredential(@Param('id') id: string, @Param('credentialId') credentialId: string, @CurrentUser() user: JwtPayload) {
+    return this.trainers.deleteCredential(user, id, credentialId);
   }
 
   @Roles(Role.CEO, Role.STAFF)

@@ -4,7 +4,7 @@ import { ChevronRight, Plus, ShieldPlus } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { useGroupClasses, usePersonalSlots, useTrainers } from '../../hooks/useClientApi'
 import { useAllClients } from '../../hooks/useStaffApi'
-import { useCreateTrainer, type CreateTrainerPayload } from '../../hooks/useCeoApi'
+import { useCreateTrainer, useCredentialAlerts, type CreateTrainerPayload } from '../../hooks/useCeoApi'
 import { useNetworkGyms } from '../../hooks/useGymsApi'
 import { useAuthStore } from '../../store/useAuthStore'
 import { getTrainerLoad } from '../../lib/ceoSelectors'
@@ -160,6 +160,7 @@ export function TrainerLoadPage() {
   const { data: allClients } = useAllClients(true)
   const { data: allClasses } = useGroupClasses()
   const { data: allSlots } = usePersonalSlots()
+  const { data: credentialAlerts } = useCredentialAlerts()
   const [addOpen, setAddOpen] = useState(false)
   const [addStaffOpen, setAddStaffOpen] = useState(false)
   const [gymScope, setGymScope] = useState<string[]>(defaultGymScope)
@@ -202,6 +203,20 @@ export function TrainerLoadPage() {
       </div>
       <AddTrainerModal open={addOpen} onClose={() => setAddOpen(false)} />
       <AddStaffModal open={addStaffOpen} onClose={() => setAddStaffOpen(false)} />
+
+      {credentialAlerts && credentialAlerts.length > 0 && (
+        <Card>
+          <SectionTitle title="Сертификаты требуют внимания" subtitle="Просроченные и истекающие в ближайшие 30 дней" />
+          <div className="flex flex-col gap-2">
+            {credentialAlerts.map((alert) => (
+              <Link key={alert.id} to={`/ceo/trainers/${alert.trainerId}`} className="flex items-center justify-between gap-2 rounded-lg bg-[var(--surface-sunken)] px-3 py-2 text-sm hover:bg-[var(--accent-soft)]">
+                <span><b>{alert.trainer.name}</b> · {alert.title}{alert.isRequired && ' · обязательный'}</span>
+                <Badge tone={alert.status === 'EXPIRED' ? 'danger' : 'warning'}>{alert.status === 'EXPIRED' ? 'просрочен' : 'истекает скоро'}</Badge>
+              </Link>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatTile label="Тренеров" value={trainers.length} />

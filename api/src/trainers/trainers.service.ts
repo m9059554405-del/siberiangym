@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import type { CreateCredentialDto, UpdateCredentialDto } from './dto/credential.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTrainerDto } from './dto/create-trainer.dto';
 import { CreateLoginDto } from './dto/create-login.dto';
@@ -99,6 +100,69 @@ export class TrainersService {
     });
     if (!trainer) throw new NotFoundException('Тренер не найден');
     return trainer;
+  }
+
+  async listCredentialAlerts(actor: JwtPayload, days = 30) {
+    const safeDays = Number.isFinite(days) ? Math.min(365, Math.max(0, Math.trunc(days))) : 30;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const until = new Date(today);
+    until.setDate(until.getDate() + safeDays);
+    const credentials = await this.prisma.trainerCredential.findMany({
+      where: {
+        trainer: await this.scopeForActor(actor),
+        expiresAt: { lte: until },
+      },
+      include: { trainer: { select: { id: true, name: true } } },
+      orderBy: { expiresAt: 'asc' },
+    });
+    return credentials.map((credential) => ({
+      ...credential,
+      status: credential.expiresAt && credential.expiresAt < today ? 'EXPIRED' : 'EXPIRING_SOON',
+    }));
+  }
+
+  async createCredential(actor: JwtPayload, trainerId: string, dto: CreateCredentialDto) {
+    const trainer = await this.findOne(actor, trainerId);
+    const credential = await this.prisma.trainerCredential.create({
+      data: {
+        trainerId,
+        title: dto.title,
+        issuedBy: dto.issuedBy,
+        year: dto.year,
+        expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
+        isRequired: dto.isRequired ?? false,
+      },
+    });
+    await this.activityLog.log(actor, 'Добавил сертификат тренеру', trainer.name, dto.title);
+    return credential;
+  }
+
+  async updateCredential(actor: JwtPayload, trainerId: string, credentialId: string, dto: UpdateCredentialDto) {
+    const trainer = await this.findOne(actor, trainerId);
+    const existing = await this.prisma.trainerCredential.findFirst({ where: { id: credentialId, trainerId } });
+    if (!existing) throw new NotFoundException('Сертификат не найден');
+    const credential = await this.prisma.trainerCredential.update({
+      where: { id: credentialId },
+      data: {
+        ...(dto.title !== undefined ? { title: dto.title } : {}),
+        ...(dto.issuedBy !== undefined ? { issuedBy: dto.issuedBy } : {}),
+        ...(dto.year !== undefined ? { year: dto.year } : {}),
+        ...(dto.expiresAt !== undefined ? { expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null } : {}),
+        ...(dto.isRequired !== undefined ? { isRequired: dto.isRequired } : {}),
+      },
+    });
+    await this.activityLog.log(actor, 'Изменил сертификат тренера', trainer.name, credential.title);
+    return credential;
+  }
+
+  async deleteCredential(actor: JwtPayload, trainerId: string, credentialId: string) {
+    const trainer = await this.findOne(actor, trainerId);
+    const existing = await this.prisma.trainerCredential.findFirst({ where: { id: credentialId, trainerId } });
+    if (!existing) throw new NotFoundException('Сертификат не найден');
+    await this.prisma.trainerCredential.delete({ where: { id: credentialId } });
+    await this.activityLog.log(actor, 'Удалил сертификат тренера', trainer.name, existing.title);
+    return { ok: true };
   }
 
   // Используется расписанием (schedule.service.ts) — та же проверка "тренер

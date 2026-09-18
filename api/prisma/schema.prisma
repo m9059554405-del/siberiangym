@@ -416,9 +416,11 @@ model TrainerCredential {
   id        String  @id @default(cuid())
   trainerId String  @map("trainer_id")
   trainer   Trainer @relation(fields: [trainerId], references: [id], onDelete: Cascade)
-  title     String
-  issuedBy  String? @map("issued_by")
-  year      Int?
+  title      String
+  issuedBy   String?  @map("issued_by")
+  year       Int?
+  expiresAt  DateTime? @map("expires_at") @db.Date
+  isRequired Boolean  @default(false) @map("is_required")
 
   @@map("trainer_credentials")
 }

@@ -1,4 +1,5 @@
 import { ExternalLink } from 'lucide-react'
+import { formatDateLong } from '../lib/format'
 import { Avatar } from './ui/Avatar'
 import { Badge } from './ui/Primitives'
 import { Modal } from './ui/Modal'
@@ -35,7 +36,7 @@ export function TrainerProfileModal({ trainer, onClose }: { trainer: Trainer | n
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium">{c.title}</div>
                       <div className="text-xs text-[var(--text-faint)]">
-                        {c.issuedBy ?? ''} {c.year ? `· ${c.year}` : ''}
+                        {c.issuedBy ?? ''} {c.year ? `· ${c.year}` : ''}{c.expiresAt ? ` · до ${formatDateLong(c.expiresAt)}` : ''}
                       </div>
                     </div>
                   </div>
