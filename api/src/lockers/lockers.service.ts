@@ -84,17 +84,28 @@ export class LockersService {
     // возвращаем её номер повторно, новый шкафчик не назначается.
     const active = await this.prisma.locker.findFirst({ where: { rentedBy: client.id, status: 'RENTED' } });
     if (active) {
-      if (this.equipped(active)) await this.openDoor(active);
-      await this.prisma.locker.update({ where: { id: active.id }, data: { doorState: 'OPEN' } });
+      if (this.equipped(active)) {
+        await this.openDoor(active);
+        await this.prisma.locker.update({ where: { id: active.id }, data: { doorState: 'OPEN' } });
+      }
       await this.activityLog.log(actor, 'Киоск: повторный скан — открыт шкафчик клиента', client.name, `шкафчик №${active.number}`);
       return { repeat: true, lockerNumber: active.number, clientName: client.name };
     }
 
-    // Назначение свободного оснащённого шкафчика. FOR UPDATE SKIP LOCKED —
-    // два терминала (или терминал и касса) не назначат один шкафчик дважды
-    // (P3.10): строка блокируется до конца транзакции, параллельный выбор
-    // перескакивает на следующую свободную.
+    // Назначение свободного оснащённого шкафчика. Сначала блокируем строку
+    // клиента (P3.10): два терминала, сканирующие один QR одновременно,
+    // выстраиваются в очередь — второй после коммита первого увидит его
+    // аренду и вернёт тот же шкафчик, а не второй параллельно. Выбор
+    // шкафчика — FOR UPDATE SKIP LOCKED: параллельные назначения разных
+    // клиентов не ждут друг друга и перескакивают на следующий свободный.
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM clients WHERE id = ${client.id} FOR UPDATE`;
+      const raced = await tx.locker.findFirst({ where: { rentedBy: client.id, status: 'RENTED' } });
+      if (raced) {
+        if (this.equipped(raced)) await this.openDoor(raced);
+        await this.activityLog.log(actor, 'Киоск: повторный скан — открыт шкафчик клиента', client.name, `шкафчик №${raced.number}`);
+        return { repeat: true, lockerNumber: raced.number, clientName: client.name };
+      }
       const rows = await tx.$queryRaw<Array<{ id: string }>>`
         SELECT id FROM lockers
         WHERE gym_id = ${actor.gymId} AND status = 'FREE'

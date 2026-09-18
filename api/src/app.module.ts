@@ -67,11 +67,11 @@ import { PaymentsModule } from './payments/payments.module';
     GuardiansModule,
     GymsModule,
     CheckinsModule,
-  SmsModule,
-  NotificationsModule,
-  LeadsModule,
-  AcquiringModule,
-  PaymentsModule,
+    SmsModule,
+    NotificationsModule,
+    LeadsModule,
+    AcquiringModule,
+    PaymentsModule,
   ],
 })
 export class AppModule {}
