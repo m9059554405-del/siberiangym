@@ -67,7 +67,7 @@ function OpenOrdersSection() {
   const confirmReceipt = useConfirmReceipt()
   const cancelOrder = useCancelOrder()
   const testComplete = useTestCompleteOrder()
-  const isCeo = useAuthStore((s) => s.user?.role === 'CEO')
+  const canTestComplete = useAuthStore((s) => s.user?.role === 'CEO' || s.user?.role === 'STAFF')
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -142,7 +142,7 @@ function OpenOrdersSection() {
                   ) : (
                     <Badge tone={mins !== null && mins <= 15 ? 'warning' : 'accent'}>{mins !== null ? `истекает через ${mins} мин.` : 'ожидает оплаты'}</Badge>
                   )}
-                  {isCeo && (
+                  {canTestComplete && (
                     <Button
                       size="sm"
                       variant="secondary"
@@ -224,7 +224,7 @@ function OpenOrdersSection() {
               </div>
             )}
 
-            {isCeo && !cancelling && (
+            {canTestComplete && !cancelling && (
               <Button
                 variant="secondary"
                 disabled={testComplete.isPending}

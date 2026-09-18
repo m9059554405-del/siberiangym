@@ -533,13 +533,13 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  // Тестовая проводка (только CEO): закрывает заказ тем же путём, что и
-  // реальная оплата — позиции применяются, транзакции/уведомления создаются,
-  // статус уходит в PAID. Отличие от чека/вебхука: фискальных реквизитов
-  // нет, receiptRaw помечен как тестовый, чтобы такой заказ можно было
-  // отличить от реально оплаченного (для проверки сценариев без кассы).
+  // Тестовая проводка (CEO и администратор): закрывает заказ тем же путём,
+  // что и реальная оплата — позиции применяются, транзакции/уведомления
+  // создаются, статус уходит в PAID. Отличие от чека/вебхука: фискальных
+  // реквизитов нет, receiptRaw помечен как тестовый, чтобы такой заказ
+  // можно было отличить от реально оплаченного (для проверки без кассы).
   async testComplete(actor: JwtPayload, orderId: string) {
-    if (actor.role !== 'CEO') throw new ForbiddenException('Тестовая проводка доступна только CEO');
+    if (actor.role !== 'CEO' && actor.role !== 'STAFF') throw new ForbiddenException('Тестовая проводка доступна только CEO и администратору');
     const order = await this.getOwnedOrder(actor, orderId);
     if (order.status !== 'DRAFT' && order.status !== 'AWAITING_PAYMENT') {
       throw new BadRequestException(order.status === 'PAID' ? 'Заказ уже оплачен' : 'Заказ уже закрыт');

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import QRCode from 'qrcode'
 import { CalendarCheck, CreditCard, History, MessageCircle, Send, Sparkles, TicketPercent } from 'lucide-react'
 import {
@@ -9,7 +10,7 @@ import {
   useSendDirectorMessage,
   useTrainers,
 } from '../../hooks/useClientApi'
-import { useCreateCashOrder, useCreateOnlineOrder, useOnlinePaymentsEnabled } from '../../hooks/useOrdersApi'
+import { useCreateCashOrder, useCreateOnlineOrder, useMyOrders, useOnlinePaymentsEnabled } from '../../hooks/useOrdersApi'
 import { tariffById } from '../../data/tariffs'
 import { Badge, Button, Card, EmptyState, SectionTitle } from '../../components/ui/Primitives'
 import { TariffPicker } from '../../components/TariffPicker'
@@ -32,10 +33,12 @@ const STATUS_LABEL: Record<string, { label: string; tone: 'success' | 'warning' 
 }
 
 export function PaymentsPage() {
+  const qc = useQueryClient()
   const { data: client } = useMe()
   const { data: pricing } = usePricing()
   const { data: trainers } = useTrainers()
   const { data: messages } = useOwnDirectorMessages()
+  const { data: myOrders } = useMyOrders(15_000)
   const createCashOrder = useCreateCashOrder()
   // P2.9: кнопка онлайн-оплаты появляется только когда эквайринг настроен
   // на клуб (ACQUIRING_* в окружении API) — до этого клиенту доступна
@@ -49,6 +52,20 @@ export function PaymentsPage() {
   const [feedbackSent, setFeedbackSent] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
   const [pendingOrder, setPendingOrder] = useState<Order | null>(null)
+  const [orderError, setOrderError] = useState<string | null>(null)
+
+  const pendingMembershipKeys = new Set(
+    (myOrders ?? [])
+      .filter((o) => o.status === 'DRAFT' || o.status === 'AWAITING_PAYMENT')
+      .flatMap((o) => o.lines)
+      .filter((l) => l.type === 'MEMBERSHIP_PURCHASE' && l.meta && typeof l.meta.membershipType === 'string')
+      .map((l) => `${l.meta!.membershipType as string}:${typeof l.meta!.scope === 'string' ? l.meta!.scope : 'SINGLE_GYM'}`),
+  )
+  const pendingKey = [...pendingMembershipKeys].sort().join(',')
+
+  useEffect(() => {
+    qc.invalidateQueries({ queryKey: ['me'] })
+  }, [pendingKey, qc])
 
   // Код прохода (P2.2) живёт в плашке текущего абонемента: персональный
   // QR строится на устройстве из id клиента (`sgym-checkin:<id>`) и не
@@ -77,7 +94,16 @@ export function PaymentsPage() {
 
   function purchaseMembership(type: MembershipType, scope: 'SINGLE_GYM' | 'NETWORK' = 'SINGLE_GYM') {
     if (!client) return
-    createCashOrder.mutate({ clientId: client.id, lines: [{ type: 'MEMBERSHIP_PURCHASE', meta: { membershipType: type, scope } }] }, { onSuccess: setPendingOrder })
+    createCashOrder.mutate(
+      { clientId: client.id, lines: [{ type: 'MEMBERSHIP_PURCHASE', meta: { membershipType: type, scope } }] },
+      {
+        onSuccess: (order) => {
+          setPendingOrder(order)
+          setOrderError(null)
+        },
+        onError: (err) => setOrderError(err instanceof Error ? err.message : 'Не удалось оформить заказ'),
+      },
+    )
   }
 
   // P2.9: заказ уходит на оплату картой и браузер перенаправляется на
@@ -90,13 +116,23 @@ export function PaymentsPage() {
         onSuccess: (order) => {
           if (order.paymentUrl) window.location.href = order.paymentUrl
         },
+        onError: (err) => setOrderError(err instanceof Error ? err.message : 'Не удалось оформить онлайн-оплату'),
       },
     )
   }
 
   function changeTariff(tariff: Tariff) {
     if (!client) return
-    createCashOrder.mutate({ clientId: client.id, lines: [{ type: 'TARIFF_CHANGE', meta: { tariff } }] }, { onSuccess: setPendingOrder })
+    createCashOrder.mutate(
+      { clientId: client.id, lines: [{ type: 'TARIFF_CHANGE', meta: { tariff } }] },
+      {
+        onSuccess: (order) => {
+          setPendingOrder(order)
+          setOrderError(null)
+        },
+        onError: (err) => setOrderError(err instanceof Error ? err.message : 'Не удалось оформить заказ'),
+      },
+    )
   }
 
   if (!client || !pricing) return null
@@ -136,6 +172,15 @@ export function PaymentsPage() {
       </div>
 
       {pendingOrder && <OrderPendingNotice order={pendingOrder} onDismiss={() => setPendingOrder(null)} />}
+
+      {orderError && (
+        <Card className="flex items-center justify-between gap-2 text-sm text-red-600">
+          <span>{orderError}</span>
+          <button onClick={() => setOrderError(null)} className="tap-scale font-medium underline">
+            Закрыть
+          </button>
+        </Card>
+      )}
 
       <Card className="relative text-white" style={{ background: 'var(--accent-gradient)', border: 'none' }}>
         <div className="flex items-start justify-between">
@@ -200,6 +245,8 @@ export function PaymentsPage() {
             const isActive = client.membership?.type === type && client.membership?.status === 'ACTIVE'
             const isCurrentSingle = isActive && (client.membership?.scope ?? 'SINGLE_GYM') === 'SINGLE_GYM'
             const isCurrentNetwork = isActive && client.membership?.scope === 'NETWORK'
+            const isPendingMembership = pendingMembershipKeys.has(`${type}:SINGLE_GYM`)
+            const isPendingNetwork = pendingMembershipKeys.has(`${type}:NETWORK`)
             const priceKey = type.toLowerCase() as 'single' | 'monthly' | 'pack10' | 'pack20'
             const networkPriceKey = `${priceKey}Network` as const
             const networkPrice = pricing[networkPriceKey]
@@ -215,18 +262,18 @@ export function PaymentsPage() {
                     <span className="text-lg font-bold">{formatMoney(pricing[priceKey])} ₽</span>
                     <Button
                       size="sm"
-                      variant={isCurrentSingle ? 'secondary' : 'primary'}
-                      disabled={isCurrentSingle || createCashOrder.isPending}
+                      variant={isCurrentSingle || isPendingMembership ? 'secondary' : 'primary'}
+                      disabled={isCurrentSingle || isPendingMembership || createCashOrder.isPending}
                       onClick={() => purchaseMembership(type, 'SINGLE_GYM')}
                     >
-                      {isCurrentSingle ? 'Активен' : 'Купить'}
+                      {isCurrentSingle ? 'Активен' : isPendingMembership ? 'На проверке' : 'Купить'}
                     </Button>
                   </div>
                   {onlinePayments.data?.enabled && (
                     <Button
                       size="sm"
                       variant="ghost"
-                      disabled={isCurrentSingle || createOnlineOrder.isPending}
+                      disabled={isCurrentSingle || isPendingMembership || createOnlineOrder.isPending}
                       onClick={() => purchaseMembershipOnline(type)}
                     >
                       Оплатить картой онлайн
@@ -237,11 +284,11 @@ export function PaymentsPage() {
                       <span className="text-xs text-[var(--text-muted)]">Вся сеть — {formatMoney(networkPrice)} ₽</span>
                       <Button
                         size="sm"
-                        variant={isCurrentNetwork ? 'secondary' : 'ghost'}
-                        disabled={isCurrentNetwork || createCashOrder.isPending}
+                        variant={isCurrentNetwork || isPendingNetwork ? 'secondary' : 'ghost'}
+                        disabled={isCurrentNetwork || isPendingNetwork || createCashOrder.isPending}
                         onClick={() => purchaseMembership(type, 'NETWORK')}
                       >
-                        {isCurrentNetwork ? 'Активен' : 'Купить'}
+                        {isCurrentNetwork ? 'Активен' : isPendingNetwork ? 'На проверке' : 'Купить'}
                       </Button>
                     </div>
                   )}
