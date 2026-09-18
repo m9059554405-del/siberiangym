@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { Receipt, RotateCcw, Search, X } from 'lucide-react'
-import { useCancelOrder, useConfirmReceipt, useOpenOrders, usePaidOrders, useSubmitCash } from '../../hooks/useOrdersApi'
+import { Receipt, FlaskConical, RotateCcw, Search, X } from 'lucide-react'
+import { useCancelOrder, useConfirmReceipt, useOpenOrders, usePaidOrders, useSubmitCash, useTestCompleteOrder } from '../../hooks/useOrdersApi'
 import { useCancelRefund, useConfirmRefundReceipt, useOpenRefunds, useRequestRefund } from '../../hooks/useRefundsApi'
 import { useAllClients } from '../../hooks/useStaffApi'
 import { Avatar } from '../../components/ui/Avatar'
@@ -9,6 +9,7 @@ import { Modal } from '../../components/ui/Modal'
 import { ReceiptScanPanel } from '../../components/ReceiptScanPanel'
 import { formatMoney, getInitials } from '../../lib/format'
 import { playBeep, playDoubleBeep } from '../../lib/beep'
+import { useAuthStore } from '../../store/useAuthStore'
 import type { Order, OrderLineType, Refund } from '../../types'
 
 const LINE_TYPE_LABEL: Record<OrderLineType, string> = {
@@ -65,6 +66,8 @@ function OpenOrdersSection() {
   const submitCash = useSubmitCash()
   const confirmReceipt = useConfirmReceipt()
   const cancelOrder = useCancelOrder()
+  const testComplete = useTestCompleteOrder()
+  const isCeo = useAuthStore((s) => s.user?.role === 'CEO')
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -201,6 +204,24 @@ function OpenOrdersSection() {
                   </Button>
                 </div>
               </div>
+            )}
+
+            {isCeo && !cancelling && (
+              <Button
+                variant="secondary"
+                disabled={testComplete.isPending}
+                onClick={() =>
+                  testComplete.mutate(selected.id, {
+                    onSuccess: closeModal,
+                    onError: (err) => {
+                      playDoubleBeep()
+                      setErrorMessage(err instanceof Error ? err.message : 'Не удалось выполнить тестовую проводку')
+                    },
+                  })
+                }
+              >
+                <FlaskConical size={14} /> Тестовая проводка
+              </Button>
             )}
           </div>
         )}

@@ -68,6 +68,14 @@ export class OrdersController {
     return this.orders.confirmReceipt(user, id, dto.qrRaw);
   }
 
+  // Тестовая проводка: закрыть заказ как оплаченный без сканирования чека —
+  // только CEO, для проверки сценариев оплаты без реальной кассы.
+  @Roles(Role.CEO)
+  @Post(':id/test-complete')
+  testComplete(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    return this.orders.testComplete(user, id);
+  }
+
   @Roles(Role.CEO, Role.STAFF, Role.CLIENT)
   @Post(':id/cancel')
   cancel(@Param('id') id: string, @Body() dto: CancelOrderDto, @CurrentUser() user: JwtPayload) {

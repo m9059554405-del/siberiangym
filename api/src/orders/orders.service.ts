@@ -533,6 +533,40 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  // Тестовая проводка (только CEO): закрывает заказ тем же путём, что и
+  // реальная оплата — позиции применяются, транзакции/уведомления создаются,
+  // статус уходит в PAID. Отличие от чека/вебхука: фискальных реквизитов
+  // нет, receiptRaw помечен как тестовый, чтобы такой заказ можно было
+  // отличить от реально оплаченного (для проверки сценариев без кассы).
+  async testComplete(actor: JwtPayload, orderId: string) {
+    if (actor.role !== 'CEO') throw new ForbiddenException('Тестовая проводка доступна только CEO');
+    const order = await this.getOwnedOrder(actor, orderId);
+    if (order.status !== 'DRAFT' && order.status !== 'AWAITING_PAYMENT') {
+      throw new BadRequestException(order.status === 'PAID' ? 'Заказ уже оплачен' : 'Заказ уже закрыт');
+    }
+    if (order.expiresAt && order.expiresAt.getTime() < Date.now()) {
+      await this.markExpired(order.id);
+      throw new BadRequestException('Время ожидания оплаты истекло, заказ отменён — соберите заказ заново');
+    }
+    // commitAsPaid закрывает только AWAITING_PAYMENT — черновик сначала
+    // переводится в ожидание оплаты (как при "Оплатить наличными"), чтобы
+    // весь дальнейший путь совпадал с реальной оплатой.
+    if (order.status === 'DRAFT') {
+      await this.prisma.order.update({
+        where: { id: order.id },
+        data: { status: 'AWAITING_PAYMENT', paymentMethod: 'CASH', expiresAt: new Date(Date.now() + AWAITING_PAYMENT_TIMEOUT_MINUTES * 60_000) },
+      });
+    }
+    const now = new Date();
+    return this.commitAsPaid(
+      order,
+      { raw: `TEST:${now.toISOString()}`, date: now, fn: null, i: null, fp: null },
+      actor,
+      'Тестовая проводка заказа (без реальной оплаты)',
+      `${order.lines.length} поз. на ${order.totalAmount} ₽ — чек не сканировался, проводка тестовая`,
+    );
+  }
+
   // Общий финал оплаты (P2.9): применяет позиции, создаёт транзакции,
   // закрывает заказ в PAID. Вызывается из подтверждения чека и из вебхука
   // эквайринга. Строка заказа блокируется FOR UPDATE, статус перепроверяется

@@ -79,6 +79,16 @@ export function useConfirmReceipt() {
   })
 }
 
+// Тестовая проводка (только CEO): закрыть заказ как оплаченный без чека —
+// для проверки сценариев оплаты без реальной кассы.
+export function useTestCompleteOrder() {
+  const invalidate = useInvalidateAfterOrder()
+  return useMutation({
+    mutationFn: (orderId: string) => api.post<Order>(`/orders/${orderId}/test-complete`),
+    onSuccess: invalidate,
+  })
+}
+
 export function useCancelOrder() {
   const invalidate = useInvalidateAfterOrder()
   return useMutation({
