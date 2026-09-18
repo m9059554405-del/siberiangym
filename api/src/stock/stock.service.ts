@@ -129,37 +129,64 @@ export class StockService {
   async finalizeInventory(actor: JwtPayload, dto: FinalizeInventoryDto) {
     const countEntries: { catalogItemId: string; location: StockLocation; systemQty: number; countedQty: number }[] = [];
 
+    // P3.13: раньше — отдельный запрос партий на каждую позицию инвентаризации
+    // (N+1: 100 позиций = 100 последовательных round-trip'ов к Postgres).
+    // Теперь все партии всех позиций читаются одним findMany по списку пар
+    // «товар+локация» и группируются в памяти; корректировки применяются
+    // одной транзакцией.
+    const pairs = Array.from(new Set(dto.entries.map((e) => `${e.catalogItemId}\u0000${e.location}`)));
+    const allBatches = await this.prisma.stockBatch.findMany({
+      where: { gymId: actor.gymId, OR: pairs.map((p) => { const [catalogItemId, location] = p.split('\u0000'); return { catalogItemId, location: location as StockLocation }; }) },
+    });
+    const batchesByPair = new Map<string, typeof allBatches>();
+    for (const b of allBatches) {
+      const key = `${b.catalogItemId}\u0000${b.location}`;
+      const list = batchesByPair.get(key) ?? [];
+      list.push(b);
+      batchesByPair.set(key, list);
+    }
+
+    const corrections: Promise<unknown>[] = [];
+    const now = new Date();
     for (const e of dto.entries) {
-      const batches = await this.prisma.stockBatch.findMany({
-        where: { gymId: actor.gymId, catalogItemId: e.catalogItemId, location: e.location },
-      });
+      const batches = batchesByPair.get(`${e.catalogItemId}\u0000${e.location}`) ?? [];
       const systemQty = batches.reduce((s, b) => s + b.quantity, 0);
       const diff = e.countedQty - systemQty;
       countEntries.push({ catalogItemId: e.catalogItemId, location: e.location, systemQty, countedQty: e.countedQty });
 
       if (diff > 0) {
-        await this.prisma.stockBatch.create({
-          data: {
-            gymId: actor.gymId,
-            catalogItemId: e.catalogItemId,
-            location: e.location,
-            quantity: diff,
-            receivedAt: new Date(),
-            expiresAt: new Date(Date.now() + 180 * 86400000),
-          },
-        });
+        corrections.push(
+          this.prisma.stockBatch.create({
+            data: {
+              gymId: actor.gymId,
+              catalogItemId: e.catalogItemId,
+              location: e.location,
+              quantity: diff,
+              receivedAt: now,
+              expiresAt: new Date(now.getTime() + 180 * 86400000),
+            },
+          }),
+        );
       } else if (diff < 0) {
-        await this.decrementBatches(actor.gymId, e.catalogItemId, e.location, -diff);
+        // Недостача списывается по тем же партиям, что уже прочитаны одним
+        // запросом: FEFO-распределение (planFifoWriteoff) + пакет update'ов.
+        const updates = planFifoWriteoff([...batches].sort((a, b) => a.expiresAt.getTime() - b.expiresAt.getTime()), -diff);
+        for (const u of updates) {
+          corrections.push(this.prisma.stockBatch.update({ where: { id: u.id }, data: { quantity: u.quantity } }));
+        }
       }
     }
 
-    const inventoryCount = await this.prisma.inventoryCount.create({
-      data: {
-        gymId: actor.gymId,
-        authorId: actor.sub,
-        entries: { create: countEntries },
-      },
-      include: { entries: true },
+    const inventoryCount = await this.prisma.$transaction(async (tx) => {
+      await Promise.all(corrections);
+      return tx.inventoryCount.create({
+        data: {
+          gymId: actor.gymId,
+          authorId: actor.sub,
+          entries: { create: countEntries },
+        },
+        include: { entries: true },
+      });
     });
 
     const mismatches = countEntries.filter((e) => e.countedQty !== e.systemQty).length;
