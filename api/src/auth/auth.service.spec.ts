@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { Role } from '@prisma/client';
 import { AuthService } from './auth.service';
+import { verifyTotp } from './totp.util';
 
 // P3.1: сценарий входа (критичный из бэклога) — реальный bcrypt и реальный
 // подпись JWT, мок только на чтение пользователя из БД.
@@ -37,6 +38,7 @@ describe('AuthService.login', () => {
   it('успешный вход возвращает токен с payload (sub/gymId/role)', async () => {
     const { service } = makeService(userFixture());
     const res = await service.login('client@siberiangym.ru', 'correct-horse');
+    if (!('accessToken' in res)) throw new Error('Expected access token');
 
     expect(res.user).toEqual({ id: 'user1', email: 'client@siberiangym.ru', role: 'CLIENT', gymId: 'gym1' });
     const decoded = new JwtService({ secret: 'test-secret' }).decode(res.accessToken) as Record<string, unknown>;
@@ -106,6 +108,44 @@ describe('AuthService.password reset (P3.5)', () => {
     expect(prisma.user.update).toHaveBeenCalledWith({ where: { id: 'user1' }, data: { passwordHash: expect.any(String) } });
     expect(prisma.passwordResetToken.update).toHaveBeenCalledWith({ where: { id: 'reset1' }, data: { usedAt: expect.any(Date) } });
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('AuthService.two-factor authentication (P3.6)', () => {
+  it('CEO with enabled 2FA получает challenge вместо access token', async () => {
+    const { service } = makeService(userFixture({ role: Role.CEO, twoFactorEnabled: true, twoFactorSecret: 'JBSWY3DPEHPK3PXP' }));
+    const result = await service.login('client@siberiangym.ru', 'correct-horse');
+    expect(result).toEqual(expect.objectContaining({ requiresTwoFactor: true, challengeToken: expect.any(String) }));
+  });
+
+  it('обычный CLIENT получает access token без challenge', async () => {
+    const { service } = makeService(userFixture());
+    const result = await service.login('client@siberiangym.ru', 'correct-horse');
+    expect(result).toEqual(expect.objectContaining({ requiresTwoFactor: false, accessToken: expect.any(String) }));
+  });
+
+  it('TOTP verifier отклоняет неверный формат и код', () => {
+    expect(verifyTotp('JBSWY3DPEHPK3PXP', '123')).toBe(false);
+    expect(verifyTotp('JBSWY3DPEHPK3PXP', '000000')).toBe(false);
+  });
+
+  it('неверный TOTP code не завершает login challenge', async () => {
+    const { service } = makeService(userFixture({ role: Role.STAFF, twoFactorEnabled: true, twoFactorSecret: 'JBSWY3DPEHPK3PXP' }));
+    const challenge = await service.login('client@siberiangym.ru', 'correct-horse');
+    if (!('challengeToken' in challenge)) throw new Error('Expected 2FA challenge');
+    await expect(service.verifyTwoFactorLogin(challenge.challengeToken, '000000')).rejects.toThrow(UnauthorizedException);
+  });
+
+  it('setup создаёт pending secret и URI, confirm включает 2FA', async () => {
+    const user = userFixture({ role: Role.CEO, email: 'ceo@example.com', twoFactorPendingSecret: null });
+    const { service, prisma } = makeService(user);
+    prisma.user.findUniqueOrThrow = jest.fn().mockResolvedValue(user);
+    prisma.user.update.mockReturnValue({ operation: 'update' });
+    const actor = { sub: 'user1', gymId: 'gym1', role: Role.CEO };
+    const setup = await service.startTwoFactorSetup(actor);
+    expect(setup.secret).toMatch(/^[A-Z2-7]+$/);
+    expect(setup.otpauthUrl).toContain('otpauth://totp/');
+    expect(prisma.user.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ twoFactorPendingSecret: setup.secret }) }));
   });
 });
 

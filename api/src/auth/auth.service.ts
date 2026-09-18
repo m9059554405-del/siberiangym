@@ -6,6 +6,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { Role } from '@prisma/client';
+import { generateTotpSecret, otpauthUri, verifyTotp } from './totp.util';
 
 export interface JwtPayload {
   sub: string; // userId
@@ -38,11 +39,59 @@ export class AuthService {
 
   async login(email: string, password: string) {
     const user = await this.validateUser(email, password);
+    if ((user.role === Role.CEO || user.role === Role.STAFF) && user.twoFactorEnabled && user.twoFactorSecret) {
+      const challengeToken = this.jwt.sign({ sub: user.id, purpose: '2fa-login' }, { expiresIn: 300 });
+      return { requiresTwoFactor: true, challengeToken };
+    }
+    return this.issueAccessToken(user);
+  }
+
+  private issueAccessToken(user: { id: string; gymId: string; role: Role; email: string | null }) {
     const payload: JwtPayload = { sub: user.id, gymId: user.gymId, role: user.role };
     return {
+      requiresTwoFactor: false,
       accessToken: this.jwt.sign(payload),
       user: { id: user.id, email: user.email, role: user.role, gymId: user.gymId },
     };
+  }
+
+  async verifyTwoFactorLogin(challengeToken: string, code: string) {
+    let payload: { sub?: string; purpose?: string };
+    try {
+      payload = this.jwt.verify(challengeToken);
+    } catch {
+      throw new UnauthorizedException('Код подтверждения устарел — войдите снова');
+    }
+    if (payload.purpose !== '2fa-login' || !payload.sub) throw new UnauthorizedException('Недействительный запрос второго фактора');
+    const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+    if (!user || !user.isActive || !user.twoFactorEnabled || !user.twoFactorSecret || !verifyTotp(user.twoFactorSecret, code)) {
+      throw new UnauthorizedException('Неверный код подтверждения');
+    }
+    return this.issueAccessToken(user);
+  }
+
+  async startTwoFactorSetup(actor: JwtPayload) {
+    if (actor.role !== Role.CEO && actor.role !== Role.STAFF) throw new ForbiddenException('2FA доступна только CEO и STAFF');
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: actor.sub } });
+    const secret = generateTotpSecret();
+    await this.prisma.user.update({ where: { id: actor.sub }, data: { twoFactorPendingSecret: secret } });
+    return { secret, otpauthUrl: otpauthUri(secret, user.email ?? actor.sub) };
+  }
+
+  async confirmTwoFactorSetup(actor: JwtPayload, code: string) {
+    if (actor.role !== Role.CEO && actor.role !== Role.STAFF) throw new ForbiddenException('2FA доступна только CEO и STAFF');
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: actor.sub } });
+    if (!user.twoFactorPendingSecret || !verifyTotp(user.twoFactorPendingSecret, code)) throw new BadRequestException('Неверный код приложения-аутентификатора');
+    await this.prisma.user.update({ where: { id: actor.sub }, data: { twoFactorSecret: user.twoFactorPendingSecret, twoFactorPendingSecret: null, twoFactorEnabled: true } });
+    return { enabled: true };
+  }
+
+  async disableTwoFactor(actor: JwtPayload, code: string) {
+    if (actor.role !== Role.CEO && actor.role !== Role.STAFF) throw new ForbiddenException('2FA доступна только CEO и STAFF');
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: actor.sub } });
+    if (!user.twoFactorEnabled || !user.twoFactorSecret || !verifyTotp(user.twoFactorSecret, code)) throw new BadRequestException('Неверный код приложения-аутентификатора');
+    await this.prisma.user.update({ where: { id: actor.sub }, data: { twoFactorSecret: null, twoFactorPendingSecret: null, twoFactorEnabled: false } });
+    return { enabled: false };
   }
 
   // P3.5: запрашивающий не получает подтверждения существования email —

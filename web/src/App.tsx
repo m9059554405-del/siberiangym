@@ -8,6 +8,7 @@ import { CeoShell } from './layouts/CeoShell'
 import { LoginPage } from './pages/LoginPage'
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
 import { ResetPasswordPage } from './pages/ResetPasswordPage'
+import { TwoFactorPage } from './pages/TwoFactorPage'
 
 import { PaymentsPage } from './features/client/PaymentsPage'
 import { CalendarPage } from './features/client/CalendarPage'
@@ -68,6 +69,7 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/two-factor" element={<TwoFactorPage />} />
 
         <Route element={<RootLayout />}>
           <Route path="/" element={<HomeRedirect />} />

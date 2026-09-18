@@ -127,9 +127,12 @@ model User {
   // (единственная сегодня учётная запись без карточки, заводится
   // seed-скриптом) может оставаться пустым.
   name         String?
-  passwordHash String   @map("password_hash")
-  role         Role
-  isActive     Boolean  @default(true) @map("is_active")
+  passwordHash             String   @map("password_hash")
+  role                     Role
+  isActive                 Boolean  @default(true) @map("is_active")
+  twoFactorSecret          String?  @map("two_factor_secret")
+  twoFactorPendingSecret   String?  @map("two_factor_pending_secret")
+  twoFactorEnabled         Boolean  @default(false) @map("two_factor_enabled")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 

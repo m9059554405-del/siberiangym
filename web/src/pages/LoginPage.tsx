@@ -25,12 +25,17 @@ export function LoginPage() {
     setError(null)
     setLoading(true)
     try {
-      const res = await api.post<{ accessToken: string; user: { id: string; email: string | null; role: string; gymId: string } }>('/auth/login', {
-        email: email.trim(),
-        password,
-      })
-      setSession(res.accessToken, res.user as any)
-      navigate(ROLE_HOME[res.user.role] ?? '/client', { replace: true })
+       const res = await api.post<{ requiresTwoFactor: boolean; accessToken?: string; challengeToken?: string; user?: { id: string; email: string | null; role: string; gymId: string } }>('/auth/login', {
+         email: email.trim(),
+         password,
+       })
+       if (res.requiresTwoFactor && res.challengeToken) {
+         navigate(`/two-factor?challenge=${encodeURIComponent(res.challengeToken)}`, { replace: true })
+         return
+       }
+       if (!res.accessToken || !res.user) throw new Error('Некорректный ответ авторизации')
+       setSession(res.accessToken, res.user as any)
+       navigate(ROLE_HOME[res.user.role] ?? '/client', { replace: true })
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Не удалось войти')
     } finally {

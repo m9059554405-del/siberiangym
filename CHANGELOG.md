@@ -3,6 +3,25 @@
 Все значимые изменения проекта фиксируются в этом файле.
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.0.0/).
 
+## [0.59.0] — 2026-09-18
+
+[P3.6] 2FA для CEO/STAFF.
+
+### Добавлено
+- TOTP без внешнего сервиса: генерация секрета, `otpauth://` URI, проверка 6-значного кода с допуском соседнего 30-секундного окна.
+- Поля 2FA в `User` и миграция `p3_6_totp_2fa`: активный секрет, pending-секрет настройки и флаг включения.
+- При входе CEO/STAFF с включённой 2FA сначала выдаётся короткоживущий challenge на 5 минут; `POST /auth/2fa/login` выдаёт обычный access token только после успешного TOTP.
+- Защищённые endpoints настройки: `POST /auth/2fa/setup`, `/auth/2fa/confirm`, `/auth/2fa/disable`; CLIENT/TRAINER не могут управлять 2FA.
+- Web-страница ввода TOTP-кода и переход на неё после логина CEO/STAFF.
+- Ограничения rate limiting на challenge и endpoints настройки.
+
+### Проверено
+- `npm run prisma:generate` в `api` зелёный.
+- `npm test` в `api`: 9 suites, 89 tests зелёные.
+- `npm run test:e2e` в `api`: 3 tests зелёные.
+- `npm run build` в `api` и `web` зелёные.
+- `npm run lint` в `web` по-прежнему недоступен из-за отсутствующего optional native binding oxlint.
+
 ## [0.58.0] — 2026-09-18
 
 [P3.5] Самостоятельный сброс пароля.
