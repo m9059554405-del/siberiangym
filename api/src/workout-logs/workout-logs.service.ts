@@ -22,21 +22,50 @@ function parseRepsNumber(reps: string): number {
   return 1;
 }
 
+export interface LeaderboardRow {
+  clientId: string;
+  name: string;
+  avatarHue: number;
+  kg: number;
+}
+
 @Injectable()
 export class WorkoutLogsService {
+  // P3.15: лидерборд — единственный тяжёлый агрегат проекта: разбор строк
+  // «80 кг»/«8-12» по каждому подходу каждой тренировки. Синхронный JS-разбор
+  // на каждый запрос блокировал event loop для всех пользователей разом.
+  // Решение из бэклога «кэшировать с периодическим пересчётом»: результат
+  // кэшируется в памяти на TTL (по умолчанию 60 с) — при сотне просмотров
+  // рейтинга пересчёт выполняется один раз в минуту, а не сто раз. Кэш
+  // in-memory: один инстанс API (до P3.18) — этого достаточно; помечено к
+  // пересмотру вместе с распределённым планировщиком.
+  private readonly leaderboardCache = new Map<string, { expiresAt: number; value: LeaderboardRow[] }>();
+  private static readonly LEADERBOARD_TTL_MS = Number(process.env.LEADERBOARD_CACHE_TTL_MS ?? 60_000);
+
   constructor(private readonly prisma: PrismaService, private readonly gyms: GymsService) {}
 
   // Рейтинг по суммарно поднятым килограммам (вес × повторы) за период —
   // видно всем ролям в клубе, упражнения без веса (тело/кардио по времени)
   // в подсчёт не входят.
-  async leaderboard(gymId: string, period: 'day' | 'week' | 'month', limit = 10) {
+  async leaderboard(gymId: string, period: 'day' | 'week' | 'month', limit = 10): Promise<LeaderboardRow[]> {
+    const cacheKey = `${gymId}:${period}:${limit}`;
+    const cached = this.leaderboardCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+
     const days = period === 'day' ? 1 : period === 'week' ? 7 : 30;
     const start = new Date(Date.now() - (days - 1) * 86400000);
     start.setHours(0, 0, 0, 0);
 
+    // Читаются только поля, участвующие в подсчёте (load/reps/completed и
+    // имя/цвет клиента) — без вложенных include целиком, объём ответа БД
+    // кратно меньше (P3.15).
     const logs = await this.prisma.workoutLogEntry.findMany({
       where: { client: { gymId }, date: { gte: start }, status: { not: 'MISSED' } },
-      include: { client: true, exercises: { include: { sets: true } } },
+      select: {
+        clientId: true,
+        client: { select: { name: true, avatarHue: true } },
+        exercises: { select: { sets: { select: { load: true, reps: true, completed: true } } } },
+      },
     });
 
     const totals = new Map<string, { name: string; avatarHue: number; kg: number }>();
@@ -56,10 +85,12 @@ export class WorkoutLogsService {
       else totals.set(log.clientId, { name: log.client.name, avatarHue: log.client.avatarHue, kg: kgLifted });
     }
 
-    return [...totals.entries()]
+    const value = [...totals.entries()]
       .map(([clientId, v]) => ({ clientId, name: v.name, avatarHue: v.avatarHue, kg: Math.round(v.kg) }))
       .sort((a, b) => b.kg - a.kg)
       .slice(0, limit);
+    this.leaderboardCache.set(cacheKey, { expiresAt: Date.now() + WorkoutLogsService.LEADERBOARD_TTL_MS, value });
+    return value;
   }
 
   // Посещаемость (P1.7): CEO — вся сеть одной сводкой (gymId клиента
