@@ -3,6 +3,17 @@
 Все значимые изменения проекта фиксируются в этом файле.
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.0.0/).
 
+## [0.72.0] — 2026-09-18
+
+[P3.26] Ограничение CORS.
+
+### Изменено
+- `enableCors()` без опций (Access-Control-Allow-Origin: * для всего API) заменён явной политикой: список источников из `CORS_ORIGINS` (через запятую), при пустом значении — единственный `PUBLIC_APP_URL`, при отсутствии обоих (локальная разработка) — отражение источника запроса; `credentials: false` (аутентификация Bearer-токеном, не cookie).
+- Переменная `CORS_ORIGINS` добавлена в `.env.prod.example` и прод-Compose.
+
+### Проверено
+- `npm run build` в `api` зелёный; `npm test`: 14 suites, 112 tests; `npm run test:e2e`: 3 tests — все зелёные.
+
 ## [0.71.0] — 2026-09-18
 
 [P3.25] Docker-гигиена: healthcheck и лимиты ресурсов.
