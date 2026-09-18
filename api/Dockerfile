@@ -24,7 +24,9 @@ RUN npm run build
 
 # Компилируем seed-скрипт отдельно от основной сборки (tsconfig.build.json
 # исключает prisma/) — обычным tsc, без ts-node, в чистый CommonJS JS.
-RUN npx tsc prisma/seed.ts prisma/exercise-library.ts \
+# emergency-ceo-reset (P3.12) компилируется тем же способом: аварийный
+# сброс доступа CEO выполняется в контейнере против прод-базы.
+RUN npx tsc prisma/seed.ts prisma/exercise-library.ts prisma/emergency-ceo-reset.ts \
     --outDir dist/prisma-seed --module commonjs --target es2022 \
     --moduleResolution node --esModuleInterop --skipLibCheck --resolveJsonModule
 

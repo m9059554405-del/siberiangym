@@ -1,6 +1,6 @@
 {
   "name": "siberiangym-api",
-  "version": "0.63.0",
+  "version": "0.64.0",
   "private": true,
   "main": "dist/main.js",
   "scripts": {
@@ -12,6 +12,7 @@
     "prisma:generate": "prisma generate",
     "prisma:seed": "ts-node prisma/seed.ts",
     "prisma:network-migration": "ts-node prisma/network-migration.ts",
+    "prisma:emergency-ceo-reset": "ts-node prisma/emergency-ceo-reset.ts",
     "test": "jest --runInBand",
     "test:watch": "jest --watch",
     "test:e2e": "jest --config jest.e2e.config.js --runInBand",
