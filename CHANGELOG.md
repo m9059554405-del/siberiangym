@@ -3,6 +3,20 @@
 Все значимые изменения проекта фиксируются в этом файле.
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.0.0/).
 
+## [0.55.0] — 2026-09-18
+
+[P3.2] CI/CD.
+
+### Добавлено
+- GitHub Actions workflow `.github/workflows/ci.yml` для push и pull request в `main`.
+- API job: `npm ci`, генерация Prisma Client, 79 unit-тестов, 3 HTTP smoke/e2e-теста и production build.
+- Web job: `npm ci` и production build.
+- Node.js 22.11.0 и npm cache зафиксированы для воспроизводимого CI.
+
+### Проверено
+- Локальные команды workflow зелёные: `npm test`, `npm run test:e2e`, `npm run build` в `api`; `npm run build` в `web`.
+- `npm run lint` в `web` не включён в обязательный job: локально отсутствует optional native binding oxlint (известное ограничение).
+
 ## [0.54.0] — 2026-09-18
 
 [P3.1] Автоматические тесты.
