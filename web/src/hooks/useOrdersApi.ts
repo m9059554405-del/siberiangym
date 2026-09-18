@@ -20,8 +20,8 @@ export function useOpenOrders() {
 
 // Заказы самого клиента — чтобы личный кабинет мог показать "ожидает оплаты"
 // вместо того, чтобы делать вид, будто покупка уже применилась.
-export function useMyOrders() {
-  return useQuery({ queryKey: ['orders', 'mine'], queryFn: () => api.get<Order[]>('/orders/mine') })
+export function useMyOrders(refetchIntervalMs?: number) {
+  return useQuery({ queryKey: ['orders', 'mine'], queryFn: () => api.get<Order[]>('/orders/mine'), refetchInterval: refetchIntervalMs })
 }
 
 // Оплаченные заказы клиента — чтобы найти заказ и оформить по нему возврат (P0.7).

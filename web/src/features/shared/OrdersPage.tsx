@@ -119,10 +119,15 @@ function OpenOrdersSection() {
           {openList.map((order) => {
             const mins = minutesLeft(order.expiresAt)
             return (
-              <button
+              <div
                 key={order.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => openOrder(order)}
-                className="tap-scale flex flex-wrap items-center justify-between gap-3 rounded-lg bg-[var(--surface-sunken)] px-3 py-2.5 text-left"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') openOrder(order)
+                }}
+                className="tap-scale flex cursor-pointer flex-wrap items-center justify-between gap-3 rounded-lg bg-[var(--surface-sunken)] px-3 py-2.5 text-left"
               >
                 <div className="flex items-center gap-2.5">
                   {order.client && <Avatar initials={getInitials(order.client.name)} hue={order.client.avatarHue} size={34} />}
@@ -137,9 +142,22 @@ function OpenOrdersSection() {
                   ) : (
                     <Badge tone={mins !== null && mins <= 15 ? 'warning' : 'accent'}>{mins !== null ? `истекает через ${mins} мин.` : 'ожидает оплаты'}</Badge>
                   )}
+                  {isCeo && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={testComplete.isPending && testComplete.variables === order.id}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        testComplete.mutate(order.id, { onError: () => playDoubleBeep() })
+                      }}
+                    >
+                      <FlaskConical size={14} /> Тестовая проводка
+                    </Button>
+                  )}
                   <span className="text-sm font-semibold">{formatMoney(order.totalAmount)} ₽</span>
                 </div>
-              </button>
+              </div>
             )
           })}
           {openList.length === 0 && <EmptyState title="Открытых заказов нет" subtitle="Все заказы точки закрыты или ещё не созданы" />}
