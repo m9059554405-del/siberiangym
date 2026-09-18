@@ -5,6 +5,7 @@ import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YA
 import { useExercises, useProgram } from '../../hooks/useClientApi'
 import { useClientDetail, useMeasurementsForClient, useProgressPhotosForClient, useSetClientProgram, useWorkoutLogsForClient } from '../../hooks/useTrainerApi'
 import { getMuscleLoadChange } from '../../lib/muscleLoad'
+import { MUSCLE_GROUP_LABEL } from '../../data/exercises'
 import { tariffUnlocksCoaching } from '../../data/tariffs'
 import { Avatar } from '../../components/ui/Avatar'
 import { BodyDiagram } from '../../components/BodyDiagram'
@@ -34,8 +35,15 @@ export function ClientDetailPage() {
   const { data: photos } = useProgressPhotosForClient(clientId)
   const setProgram = useSetClientProgram(clientId)
   const [pickerDayIndex, setPickerDayIndex] = useState<number | null>(null)
+  const [exerciseQuery, setExerciseQuery] = useState('')
 
   const exerciseById = useMemo(() => new Map((exercises ?? []).map((e) => [e.id, e])), [exercises])
+  const normalizeSearch = (s: string) => s.toLowerCase().replace(/ё/g, 'е').trim()
+  const filteredExercises = useMemo(() => {
+    const q = normalizeSearch(exerciseQuery)
+    if (!q) return exercises ?? []
+    return (exercises ?? []).filter((ex) => normalizeSearch(ex.name).includes(q))
+  }, [exercises, exerciseQuery])
   const muscleChanges = useMemo(
     () => getMuscleLoadChange(logs ?? [], exercises ?? [], 30).filter((c) => c.muscleGroup !== 'CARDIO'),
     [logs, exercises],
@@ -102,6 +110,7 @@ export function ClientDetailPage() {
       ),
     )
     setPickerDayIndex(null)
+    setExerciseQuery('')
   }
   function removeExercise(dayIndex: number, entryIndex: number) {
     saveDays(days.map((d, i) => (i === dayIndex ? { ...d, entries: d.entries.filter((_, ei) => ei !== entryIndex) } : d)))
@@ -189,23 +198,39 @@ export function ClientDetailPage() {
                   )
                 })}
                 <button
-                  onClick={() => setPickerDayIndex(pickerDayIndex === dayIndex ? null : dayIndex)}
+                  onClick={() => {
+                    setPickerDayIndex(pickerDayIndex === dayIndex ? null : dayIndex)
+                    setExerciseQuery('')
+                  }}
                   className="tap-scale mt-1 flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--border)] py-1.5 text-xs text-[var(--accent-strong)] hover:bg-[var(--accent-soft)]"
                 >
                   <PlusCircle size={13} /> Добавить упражнение
                 </button>
                 {pickerDayIndex === dayIndex && (
-                  <div className="mt-1 max-h-48 overflow-y-auto rounded-lg border border-[var(--border)] p-1.5">
-                    {(exercises ?? []).map((ex) => (
-                      <button
-                        key={ex.id}
-                        onClick={() => addExercise(dayIndex, ex.id)}
-                        className="flex w-full items-center justify-between rounded-md px-2 py-1 text-left text-xs hover:bg-[var(--surface-sunken)]"
-                      >
-                        <span>{ex.name}</span>
-                        <span className="text-[var(--text-faint)]">{ex.muscleGroup}</span>
-                      </button>
-                    ))}
+                  <div className="mt-1 rounded-lg border border-[var(--border)] p-1.5">
+                    <input
+                      autoFocus
+                      value={exerciseQuery}
+                      onChange={(e) => setExerciseQuery(e.target.value)}
+                      placeholder="Начните вводить название упражнения…"
+                      className="mb-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-1.5 text-sm outline-none focus:border-[var(--accent)]"
+                    />
+                    <div className="max-h-48 overflow-y-auto">
+                      {filteredExercises.length > 0 ? (
+                        filteredExercises.map((ex) => (
+                          <button
+                            key={ex.id}
+                            onClick={() => addExercise(dayIndex, ex.id)}
+                            className="flex w-full items-center justify-between rounded-md px-2 py-1 text-left text-xs hover:bg-[var(--surface-sunken)]"
+                          >
+                            <span>{ex.name}</span>
+                            <span className="text-[var(--text-faint)]">{MUSCLE_GROUP_LABEL[ex.muscleGroup]}</span>
+                          </button>
+                        ))
+                      ) : (
+                        <p className="px-2 py-3 text-center text-xs text-[var(--text-faint)]">Ничего не найдено</p>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
