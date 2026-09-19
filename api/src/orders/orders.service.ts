@@ -87,7 +87,15 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
   // ПДн несовершеннолетнего + информированное согласие на занятия) —
   // блокируется на уровне сервиса, до того как заказ/транзакция вообще
   // создастся (P0.6), а не оставлено на усмотрение администратора.
-  private async assertGuardianConsentsIfMinor(gymId: string, clientId: string): Promise<void> {
+  // P0.6 (хвост): запись на сами занятия (групповые/персональные) тоже
+  // проверяется — для них достаточно ACTIVITY_WAIVER_MINOR_GUARDIAN
+  // (допуск к занятиям): ПДн-согласие Representative подписал при
+  // оформлении карточки/абонемента, повторно требовать его нет смысла.
+  private async assertGuardianConsentsIfMinor(
+    gymId: string,
+    clientId: string,
+    requiredTypes: ('PDN_MINOR_GUARDIAN' | 'ACTIVITY_WAIVER_MINOR_GUARDIAN')[] = ['PDN_MINOR_GUARDIAN', 'ACTIVITY_WAIVER_MINOR_GUARDIAN'],
+  ): Promise<void> {
     const [client, gym] = await Promise.all([
       // Чтение строго в рамках своей точки (P1.6): раньше birthday читался
       // по голому id, и поведение проверки выдавало оракулом существование
@@ -107,7 +115,7 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
       where: {
         clientId,
         guardianId: { in: guardianLinks.map((l) => l.guardianId) },
-        type: { in: ['PDN_MINOR_GUARDIAN', 'ACTIVITY_WAIVER_MINOR_GUARDIAN'] },
+        type: { in: requiredTypes },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -115,9 +123,9 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
     for (const c of consents) {
       if (!latestByType.has(c.type)) latestByType.set(c.type, c.granted);
     }
-    if (latestByType.get('PDN_MINOR_GUARDIAN') !== true || latestByType.get('ACTIVITY_WAIVER_MINOR_GUARDIAN') !== true) {
+    if (requiredTypes.some((t) => latestByType.get(t) !== true)) {
       throw new BadRequestException(
-        'Оформление абонемента несовершеннолетнему требует подписанных согласий законного представителя (152-ФЗ и допуск к занятиям) — зафиксируйте их в карточке клиента',
+        'Оформление несовершеннолетнему требует подписанных согласий законного представителя (152-ФЗ и допуск к занятиям) — зафиксируйте их в карточке клиента',
       );
     }
   }
@@ -232,6 +240,9 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
 
       case OrderLineType.GROUP_CLASS_BOOKING: {
         if (!input.refId) throw new BadRequestException('Не указано групповое занятие');
+        // P0.6: несовершеннолетний тренируется только с допуском законного
+        // представителя — проверка до чтения занятия, дешевле и раньше.
+        await this.assertGuardianConsentsIfMinor(gymId, clientId, ['ACTIVITY_WAIVER_MINOR_GUARDIAN']);
         const gc = await this.prisma.groupClass.findFirst({ where: { id: input.refId, gymId }, include: { bookings: true } });
         if (!gc) throw new NotFoundException('Занятие не найдено');
         if (gc.bookings.some((b) => b.clientId === clientId)) throw new BadRequestException('Клиент уже записан на это занятие');
@@ -245,6 +256,8 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
 
       case OrderLineType.PERSONAL_SLOT_BOOKING: {
         if (!input.refId) throw new BadRequestException('Не указан персональный слот');
+        // P0.6: тот же допуск законного представителя, что и у групповых.
+        await this.assertGuardianConsentsIfMinor(gymId, clientId, ['ACTIVITY_WAIVER_MINOR_GUARDIAN']);
         const slot = await this.prisma.personalSlot.findFirst({ where: { id: input.refId, gymId }, include: { trainer: true } });
         if (!slot) throw new NotFoundException('Слот не найден');
         if (slot.status !== 'FREE') throw new BadRequestException('Слот уже занят');

@@ -152,7 +152,10 @@ describe('OrdersService.createOrder', () => {
 
   it('запись на групповое занятие берёт цену точки и проверяет вместимость', async () => {
     const { service, prisma } = makeService();
-    prisma.client.findFirst.mockResolvedValue({ id: 'client1', userId: 'user1', name: 'Иван' });
+    prisma.client.findFirst
+      .mockResolvedValueOnce({ id: 'client1', userId: 'user1', name: 'Иван' })
+      .mockResolvedValueOnce({ birthday: new Date('1990-01-01') });
+    prisma.gym = { findUniqueOrThrow: jest.fn().mockResolvedValue({ selfTrainingMinAge: 18 }) };
     prisma.groupClass = {
       findFirst: jest.fn().mockResolvedValue({
         id: 'class1', trainerId: 'trainer1', capacity: 10, bookings: [], date: new Date('2026-09-20'), start: '18:00', end: '19:00',
@@ -174,7 +177,10 @@ describe('OrdersService.createOrder', () => {
 
   it('переполненное групповое занятие отклоняется до создания заказа', async () => {
     const { service, prisma } = makeService();
-    prisma.client.findFirst.mockResolvedValue({ id: 'client1', userId: 'user1', name: 'Иван' });
+    prisma.client.findFirst
+      .mockResolvedValueOnce({ id: 'client1', userId: 'user1', name: 'Иван' })
+      .mockResolvedValueOnce({ birthday: new Date('1990-01-01') });
+    prisma.gym = { findUniqueOrThrow: jest.fn().mockResolvedValue({ selfTrainingMinAge: 18 }) };
     prisma.groupClass = {
       findFirst: jest.fn().mockResolvedValue({ id: 'class1', capacity: 1, bookings: [{ clientId: 'other' }] }),
     };
@@ -200,6 +206,88 @@ describe('OrdersService.createOrder', () => {
         data: expect.objectContaining({ gymId: 'gym1', totalAmount: 150 + 200 + 150, status: 'DRAFT' }),
       }),
     );
+  });
+
+  // P0.6 (хвост): запись несовершеннолетнего на занятия требует допуска
+  // законного представителя — ACTIVITY_WAIVER_MINOR_GUARDIAN.
+  function minorMocks(prisma: any, opts: { guardian: boolean; waiver: boolean }) {
+    prisma.gym = { findUniqueOrThrow: jest.fn().mockResolvedValue({ selfTrainingMinAge: 18 }) };
+    prisma.guardianChild = { findMany: jest.fn().mockResolvedValue(opts.guardian ? [{ guardianId: 'g1' }] : []) };
+    prisma.consentRecord = {
+      findMany: jest.fn().mockResolvedValue(opts.waiver ? [{ type: 'ACTIVITY_WAIVER_MINOR_GUARDIAN', granted: true }] : []),
+    };
+  }
+
+  it('несовершеннолетний без представителя не записывается на групповое занятие', async () => {
+    const { service, prisma } = makeService();
+    prisma.client.findFirst
+      .mockResolvedValueOnce({ id: 'client1', userId: 'user1', name: 'Иван' })
+      .mockResolvedValueOnce({ birthday: new Date('2012-01-01') });
+    minorMocks(prisma, { guardian: false, waiver: false });
+
+    await expect(service.createOrder(ACTOR, {
+      clientId: 'client1', lines: [{ type: 'GROUP_CLASS_BOOKING', refId: 'class1', meta: {} }],
+    } as never)).rejects.toThrow(BadRequestException);
+    expect(prisma.order.create).not.toHaveBeenCalled();
+  });
+
+  it('несовершеннолетний с представителем, но без допуска к занятиям — отказ', async () => {
+    const { service, prisma } = makeService();
+    prisma.client.findFirst
+      .mockResolvedValueOnce({ id: 'client1', userId: 'user1', name: 'Иван' })
+      .mockResolvedValueOnce({ birthday: new Date('2012-01-01') });
+    minorMocks(prisma, { guardian: true, waiver: false });
+
+    await expect(service.createOrder(ACTOR, {
+      clientId: 'client1', lines: [{ type: 'PERSONAL_SLOT_BOOKING', refId: 'slot1', meta: {} }],
+    } as never)).rejects.toThrow(/согласий законного представителя/);
+  });
+
+  it('несовершеннолетний с подписанным допуском записывается на групповое занятие', async () => {
+    const { service, prisma } = makeService();
+    prisma.client.findFirst
+      .mockResolvedValueOnce({ id: 'client1', userId: 'user1', name: 'Иван' })
+      .mockResolvedValueOnce({ birthday: new Date('2012-01-01') });
+    minorMocks(prisma, { guardian: true, waiver: true });
+    prisma.groupClass = {
+      findFirst: jest.fn().mockResolvedValue({
+        id: 'class1', trainerId: 'trainer1', capacity: 10, bookings: [], date: new Date('2026-09-20'), start: '18:00', end: '19:00',
+      }),
+    };
+    prisma.personalSlot = { findMany: jest.fn().mockResolvedValue([]) };
+    prisma.groupClassBooking = { findMany: jest.fn().mockResolvedValue([]) };
+    prisma.membershipPricing = { findUnique: jest.fn().mockResolvedValue({ groupSingle: 700 }) };
+    prisma.order.create.mockResolvedValue({ id: 'created' });
+
+    await service.createOrder(ACTOR, {
+      clientId: 'client1', lines: [{ type: 'GROUP_CLASS_BOOKING', refId: 'class1', meta: {} }],
+    } as never);
+
+    expect(prisma.order.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ totalAmount: 700 }) }),
+    );
+  });
+
+  it('совершеннолетний клиент проходит без проверок представителя', async () => {
+    const { service, prisma } = makeService();
+    prisma.client.findFirst
+      .mockResolvedValueOnce({ id: 'client1', userId: 'user1', name: 'Иван' })
+      .mockResolvedValueOnce({ birthday: new Date('1990-01-01') });
+    prisma.gym = { findUniqueOrThrow: jest.fn().mockResolvedValue({ selfTrainingMinAge: 18 }) };
+    prisma.guardianChild = { findMany: jest.fn() };
+    prisma.groupClass = {
+      findFirst: jest.fn().mockResolvedValue({ id: 'class1', trainerId: 't1', capacity: 5, bookings: [] }),
+    };
+    prisma.membershipPricing = { findUnique: jest.fn().mockResolvedValue({ groupSingle: 700 }) };
+    prisma.personalSlot = { findMany: jest.fn().mockResolvedValue([]) };
+    prisma.groupClassBooking = { findMany: jest.fn().mockResolvedValue([]) };
+    prisma.order.create.mockResolvedValue({ id: 'created' });
+
+    await service.createOrder(ACTOR, {
+      clientId: 'client1', lines: [{ type: 'GROUP_CLASS_BOOKING', refId: 'class1', meta: {} }],
+    } as never);
+
+    expect(prisma.guardianChild.findMany).not.toHaveBeenCalled();
   });
 
   it('клиент может оформить заказ только на себя', async () => {
