@@ -5,7 +5,7 @@ import { useCreateCashOrder } from '../../hooks/useOrdersApi'
 import { useClientConsents } from '../../hooks/useConsentsApi'
 import { useAllClients, useCreateClient, useCreateClientLogin, useFreezeMembership, useNetworkClientSearch, useUnfreezeMembership, useUpdateClient, type CreateClientPayload } from '../../hooks/useStaffApi'
 import { useNetworkGyms } from '../../hooks/useGymsApi'
-import { TARIFFS } from '../../data/tariffs'
+import { TARIFFS, tariffPrice } from '../../data/tariffs'
 import { Avatar } from '../../components/ui/Avatar'
 import { Badge, Button, Card, EmptyState, SectionTitle } from '../../components/ui/Primitives'
 import { Modal } from '../../components/ui/Modal'
@@ -361,7 +361,7 @@ export function ClientsManagePage() {
           <Field label="Тариф сопровождения">
             <select value={createDraft.tariff} onChange={(e) => setCreateDraft((d) => ({ ...d, tariff: e.target.value as Tariff }))} disabled={!createDraft.trainerId}
               className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-2.5 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50">
-              {TARIFFS.map((t) => <option key={t.id} value={t.id}>{t.name} — {formatMoney(t.price)} ₽/мес</option>)}
+              {TARIFFS.map((t) => <option key={t.id} value={t.id}>{t.name} — {formatMoney(tariffPrice(t.id, pricing))} ₽/мес</option>)}
             </select>
             {!createDraft.trainerId && <span className="text-xs text-[var(--text-faint)]">Доступно после выбора тренера</span>}
           </Field>
@@ -502,7 +502,7 @@ function EditClientForm({
         {draft.trainerId && (
           <select value={draft.tariff} onChange={(e) => setDraft((d) => ({ ...d, tariff: e.target.value as Tariff }))}
             className="rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-2.5 py-2 text-sm">
-            {TARIFFS.map((t) => <option key={t.id} value={t.id}>{t.name} — {formatMoney(t.price)} ₽/мес</option>)}
+            {TARIFFS.map((t) => <option key={t.id} value={t.id}>{t.name} — {formatMoney(tariffPrice(t.id, pricing))} ₽/мес</option>)}
           </select>
         )}
         <Button size="sm" variant="secondary" onClick={onSaveTrainer}>Сохранить тренера и тариф</Button>

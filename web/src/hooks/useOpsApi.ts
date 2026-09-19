@@ -1,11 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
-import type { CatalogCategory, StockLocation, WriteoffReason } from '../types'
+import type { CatalogCategory, CleaningZone, StockLocation, WriteoffReason } from '../types'
 
+// Пункт чек-листа ссылается на зону точки (P4.2): названия берутся из
+// настроек зала, а не из глобальной константы.
 export interface CleaningChecklistItem {
   id: string
-  area: string
+  zoneId: string
   done: boolean
+  zone: { id: string; name: string }
 }
 export interface CleaningChecklist {
   id: string
@@ -29,8 +32,37 @@ export function useCreateCleaningChecklist() {
 export function useToggleCleaningItem() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (vars: { checklistId: string; area: string }) => api.post(`/cleaning-checklists/${vars.checklistId}/toggle/${vars.area}`),
+    mutationFn: (vars: { checklistId: string; zoneId: string }) => api.post(`/cleaning-checklists/${vars.checklistId}/toggle/${vars.zoneId}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['cleaning-checklists'] }),
+  })
+}
+
+// Зоны уборки точки (P4.2): читает любая роль, настраивает CEO.
+export function useCleaningZones() {
+  return useQuery({ queryKey: ['cleaning-zones'], queryFn: () => api.get<CleaningZone[]>('/cleaning-zones') })
+}
+
+export function useCreateCleaningZone() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (dto: { name: string }) => api.post<CleaningZone>('/cleaning-zones', dto),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['cleaning-zones'] }),
+  })
+}
+
+export function useUpdateCleaningZone() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (vars: { id: string; name?: string; position?: number }) => api.patch<CleaningZone>(`/cleaning-zones/${vars.id}`, vars),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['cleaning-zones'] }),
+  })
+}
+
+export function useDeleteCleaningZone() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/cleaning-zones/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['cleaning-zones'] }),
   })
 }
 

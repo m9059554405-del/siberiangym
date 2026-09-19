@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActivityLogService } from '../activity-log/activity-log.service';
-import { CreateGymDto, UpdateGymDto } from './dto/gym.dto';
+import { CreateGymDto, ReplaceWorkingHoursDto, UpdateGymDto } from './dto/gym.dto';
 import type { JwtPayload } from '../auth/auth.service';
 
 // Точки одной сети (P1.1) — CEO управляет несколькими Gym в рамках одной
@@ -53,9 +53,6 @@ export class GymsService {
 
   async create(actor: JwtPayload, dto: CreateGymDto) {
     const networkId = await this.resolveOwnedNetworkId(actor);
-    const gym = await this.prisma.gym.create({
-      data: { networkId, name: dto.name, selfTrainingMinAge: dto.selfTrainingMinAge ?? 18 },
-    });
     // Без этого свежая точка вообще не может продать абонемент — эндпоинт
     // цен (P1.2) требует существующую строку MembershipPricing, а её
     // прежде вообще неоткуда было взять, кроме seed-скрипта. Копируем
@@ -63,10 +60,33 @@ export class GymsService {
     // стартовый набор — CEO может сразу поправить их через PATCH /pricing,
     // переключившись на новую точку.
     const sourcePricing = await this.prisma.membershipPricing.findUnique({ where: { gymId: actor.gymId } });
-    if (sourcePricing) {
-      const { id: _id, gymId: _gymId, ...priceFields } = sourcePricing;
-      await this.prisma.membershipPricing.create({ data: { gymId: gym.id, ...priceFields } });
-    }
+    // Стартовый набор зон уборки и часов работы тоже копируется из текущей
+    // точки (P4.2): новая точка сети начинается с проверенного набора,
+    // а не с пустоты — как и цены выше.
+    const [sourceZones, sourceHours] = await Promise.all([
+      this.prisma.cleaningZone.findMany({ where: { gymId: actor.gymId }, orderBy: { position: 'asc' } }),
+      this.prisma.gymWorkingHours.findMany({ where: { gymId: actor.gymId } }),
+    ]);
+    const gym = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.gym.create({
+        data: { networkId, name: dto.name, selfTrainingMinAge: dto.selfTrainingMinAge ?? 18 },
+      });
+      if (sourcePricing) {
+        const { id: _id, gymId: _gymId, ...priceFields } = sourcePricing;
+        await tx.membershipPricing.create({ data: { gymId: created.id, ...priceFields } });
+      }
+      if (sourceZones.length > 0) {
+        await tx.cleaningZone.createMany({
+          data: sourceZones.map((z) => ({ gymId: created.id, name: z.name, position: z.position })),
+        });
+      }
+      if (sourceHours.length > 0) {
+        await tx.gymWorkingHours.createMany({
+          data: sourceHours.map((h) => ({ gymId: created.id, weekday: h.weekday, open: h.open, close: h.close })),
+        });
+      }
+      return created;
+    });
     await this.activityLog.log(actor, 'Добавил точку в сеть', gym.name, `id: ${gym.id}`);
     return gym;
   }
@@ -212,9 +232,53 @@ export class GymsService {
     await this.activityLog.log(actor, 'Удалил точку сети', gym.name, `id: ${gymId}`);
     await this.prisma.$transaction(async (tx) => {
       await tx.membershipPricing.deleteMany({ where: { gymId } });
+      // Часы работы каскадятся по FK; зоны — RESTRICT (история чек-листов
+      // ссылается), но сюда точка доходит только без единого чек-листа,
+      // поэтому набор зон-конфига можно удалить вместе с точкой.
+      await tx.cleaningZone.deleteMany({ where: { gymId } });
+      await tx.gymWorkingHours.deleteMany({ where: { gymId } });
       await tx.trainerGym.deleteMany({ where: { gymId } });
       await tx.gym.delete({ where: { id: gymId } });
     });
     return { ok: true };
+  }
+
+  // --- Часы работы точки (P4.2) ---
+
+  listWorkingHours(gymId: string) {
+    return this.prisma.gymWorkingHours.findMany({ where: { gymId }, orderBy: { weekday: 'asc' } });
+  }
+
+  // PUT заменяет весь набор: дни не в списке — «без ограничений», пустой
+  // список снимает ограничения целиком. Расписание точки остаётся живым
+  // (существующие занятия не трогаем) — часы влияют только на создание
+  // новых занятий/слотов и генерацию серий.
+  async replaceWorkingHours(actor: JwtPayload, dto: ReplaceWorkingHoursDto) {
+    const seen = new Set<number>();
+    for (const item of dto.items) {
+      if (seen.has(item.weekday)) {
+        throw new BadRequestException(`День недели ${item.weekday} указан больше одного раза`);
+      }
+      seen.add(item.weekday);
+      if (item.open >= item.close) {
+        throw new BadRequestException(`Некорректные часы для дня ${item.weekday}: открытие должно быть раньше закрытия`);
+      }
+    }
+    const items = await this.prisma.$transaction(async (tx) => {
+      await tx.gymWorkingHours.deleteMany({ where: { gymId: actor.gymId } });
+      if (dto.items.length === 0) return [];
+      return tx.gymWorkingHours.createMany({
+        data: dto.items.map((i) => ({ gymId: actor.gymId, weekday: i.weekday, open: i.open, close: i.close })),
+      });
+    });
+    await this.activityLog.log(
+      actor,
+      'Изменил часы работы точки',
+      '',
+      dto.items.length === 0
+        ? 'ограничения сняты'
+        : dto.items.map((i) => `${i.weekday}: ${i.open}–${i.close}`).join(', '),
+    );
+    return this.listWorkingHours(actor.gymId);
   }
 }

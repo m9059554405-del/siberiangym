@@ -1,4 +1,4 @@
-import type { Tariff } from '../types'
+import type { MembershipPricing, Tariff } from '../types'
 
 export interface TariffInfo {
   id: Tariff
@@ -8,6 +8,9 @@ export interface TariffInfo {
   features: string[]
 }
 
+// Цены здесь — только запасные дефолты: актуальная цена тарифа — настройка
+// точки (P4.2, MembershipPricing.escort_*), тарифная сетка карточек берёт
+// её через tariffPrice(tariff, pricing).
 export const TARIFFS: TariffInfo[] = [
   {
     id: 'BASIC',
@@ -39,6 +42,19 @@ export const TARIFFS: TariffInfo[] = [
 
 export function tariffById(id: string | null | undefined): TariffInfo | undefined {
   return TARIFFS.find((t) => t.id === id)
+}
+
+const ESCORT_PRICE_KEY: Record<Tariff, keyof MembershipPricing> = {
+  BASIC: 'escortBasic',
+  COACHING: 'escortCoaching',
+  INDIVIDUAL: 'escortIndividual',
+}
+
+// Цена тарифа сопровождения по настройкам точки (P4.2) с фолбэком на
+// дефолт из карточки — пока прайс точки не загружен.
+export function tariffPrice(tariff: Tariff, pricing?: MembershipPricing | null): number {
+  const fromGym = pricing?.[ESCORT_PRICE_KEY[tariff]]
+  return fromGym ?? tariffById(tariff)?.price ?? 0
 }
 
 export function tariffUnlocksCoaching(tariff: string | null | undefined): boolean {

@@ -111,9 +111,29 @@ export class ScheduleService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  // Часы работы точки (P4.2): день недели без записи — ограничений нет.
+  // Время хранится строками "HH:MM" (как start/end занятий), лексикографическое
+  // сравнение корректно для нулевых часов/минут.
+  private hoursOnDate(hours: { weekday: number; open: string; close: string }[], date: Date): { open: string; close: string } | null {
+    const day = hours.find((h) => h.weekday === weekdayIndex(date));
+    return day ? { open: day.open, close: day.close } : null;
+  }
+
+  private async assertWithinWorkingHours(gymId: string, date: Date, start: string, end: string) {
+    const hours = await this.prisma.gymWorkingHours.findMany({ where: { gymId } });
+    const day = this.hoursOnDate(hours, date);
+    if (day && (start < day.open || end > day.close)) {
+      const weekdays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+      throw new BadRequestException(
+        `Вне часов работы зала: в ${weekdays[weekdayIndex(date)]} зал открыт ${day.open}–${day.close}`,
+      );
+    }
+  }
+
   async createGroupClass(actor: JwtPayload, dto: CreateGroupClassDto) {
     const trainer = await this.trainers.assertTrainerAtGym(dto.trainerId, actor.gymId);
     this.assertTrainerAvailable(trainer, new Date(dto.date));
+    await this.assertWithinWorkingHours(actor.gymId, new Date(dto.date), dto.start, dto.end);
     // P3.10: захват «проверить → создать» сериализован advisory-lock'ом по
     // тренеру — два параллельных создания (слот+занятие, или два занятия на
     // разных точках сети) выстраиваются в очередь, второй видит занятое
@@ -315,11 +335,12 @@ export class ScheduleService implements OnModuleInit, OnModuleDestroy {
     // advisory-lock'ом по тренеру — окно между проверкой коллизий и
     // созданием занятия не может быть «обогнано» параллельным слотом.
     return this.withTrainerLock(series.trainerId, async (tx) => {
-      const [trainer, existing, trainerSlots, trainerClasses] = await Promise.all([
+      const [trainer, existing, trainerSlots, trainerClasses, workingHours] = await Promise.all([
         tx.trainer.findUnique({ where: { id: series.trainerId } }),
         tx.groupClass.findMany({ where: { seriesId: series.id }, select: { date: true } }),
         tx.personalSlot.findMany({ where: { trainerId: series.trainerId } }),
         tx.groupClass.findMany({ where: { trainerId: series.trainerId } }),
+        tx.gymWorkingHours.findMany({ where: { gymId: series.gymId } }),
       ]);
       if (!trainer) return result;
 
@@ -328,6 +349,15 @@ export class ScheduleService implements OnModuleInit, OnModuleDestroy {
         const iso = day.toISOString().slice(0, 10);
         if (existingDays.has(iso)) continue;
 
+        // Часы работы точки (P4.2) — та же семантика «мягкого пропуска»,
+        // что и у недоступности тренера: серия не создаёт занятие в
+        // нерабочее время, но остаётся живой и доберёт даты после
+        // расширения часов (regenerate).
+        const dayHours = this.hoursOnDate(workingHours, day);
+        if (dayHours && (series.start < dayHours.open || series.end > dayHours.close)) {
+          result.skipped.push({ date: iso, reason: `Вне часов работы зала (${dayHours.open}–${dayHours.close})` });
+          continue;
+        }
         const unavailable = this.trainerUnavailableOn(trainer, day);
         if (unavailable) {
           result.skipped.push({ date: iso, reason: unavailable === 'DEPARTED' ? 'Тренер ушёл' : 'Тренер недоступен (отпуск/болезнь)' });
@@ -498,6 +528,7 @@ export class ScheduleService implements OnModuleInit, OnModuleDestroy {
   async createPersonalSlot(actor: JwtPayload, dto: CreatePersonalSlotDto) {
     const trainer = await this.trainers.assertTrainerAtGym(dto.trainerId, actor.gymId);
     this.assertTrainerAvailable(trainer, new Date(dto.date));
+    await this.assertWithinWorkingHours(actor.gymId, new Date(dto.date), dto.start, dto.end);
     // P3.10: та же сериализация advisory-lock'ом, что и у занятий.
     return this.withTrainerLock(dto.trainerId, async (tx) => {
       await this.assertTrainerFreeAt(tx, dto.trainerId, { date: new Date(dto.date), start: dto.start, end: dto.end }, 'Слот');

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
-import type { Gym } from '../types'
+import type { Gym, WorkingHours } from '../types'
 
 // Точки своей сети (P1.1) — виден только CEO (эндпоинт и так гейтится
 // ролью на бэкенде), список используется переключателем точки в шапке.
@@ -70,5 +70,23 @@ export function useSetStaffActive() {
     mutationFn: (vars: { userId: string; isActive: boolean }) =>
       api.post(`/gyms/staff/${vars.userId}/${vars.isActive ? 'activate' : 'deactivate'}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['gyms', 'staff'] }),
+  })
+}
+
+// Часы работы текущей точки (P4.2): читать может любая роль своей точки,
+// заменяет весь набор только CEO (эндпоинт применяет его к своей точке).
+export function useWorkingHours() {
+  return useQuery({
+    queryKey: ['gyms', 'working-hours'],
+    queryFn: () => api.get<WorkingHours[]>('/gyms/working-hours'),
+  })
+}
+
+export function useReplaceWorkingHours() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (items: { weekday: number; open: string; close: string }[]) =>
+      api.put<WorkingHours[]>('/gyms/working-hours', { items }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['gyms', 'working-hours'] }),
   })
 }

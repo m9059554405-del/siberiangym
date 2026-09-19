@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Check, Info } from 'lucide-react'
-import { tariffById } from '../data/tariffs'
+import { tariffById, tariffPrice } from '../data/tariffs'
+import { usePricing } from '../hooks/useClientApi'
 import { Badge } from './ui/Primitives'
 import { Modal } from './ui/Modal'
 import { formatMoney } from '../lib/format'
@@ -8,6 +9,8 @@ import type { Tariff } from '../types'
 
 export function TariffBadge({ tariff }: { tariff: Tariff | null }) {
   const [open, setOpen] = useState(false)
+  // Цена — настройка точки (P4.2).
+  const { data: pricing } = usePricing()
   const info = tariffById(tariff)
 
   if (!info) return <Badge tone="neutral">Без тарифа</Badge>
@@ -32,7 +35,7 @@ export function TariffBadge({ tariff }: { tariff: Tariff | null }) {
               </li>
             ))}
           </ul>
-          <p className="text-base font-bold">{formatMoney(info.price)} ₽ / мес</p>
+          <p className="text-base font-bold">{formatMoney(tariff ? tariffPrice(tariff, pricing) : 0)} ₽ / мес</p>
         </div>
       </Modal>
     </>

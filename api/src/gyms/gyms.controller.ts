@@ -1,7 +1,7 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, UseGuards } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { GymsService } from './gyms.service';
-import { CreateGymDto, MoveStaffDto, UpdateGymDto } from './dto/gym.dto';
+import { CreateGymDto, MoveStaffDto, ReplaceWorkingHoursDto, UpdateGymDto } from './dto/gym.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -41,6 +41,22 @@ export class GymsController {
   @Post('staff/:userId/activate')
   activateStaff(@Param('userId') userId: string, @CurrentUser() user: JwtPayload) {
     return this.gyms.setStaffActive(user, userId, true);
+  }
+
+  // Часы работы (P4.2): читать — любая роль своей точки (клиентский
+  // календарь и формы создания занятий показывают, когда зал открыт),
+  // менять — только владелец сети. Методный @Roles расширяет классовый
+  // CEO-only (getAllAndOverride в RolesGuard).
+  @Roles(Role.CLIENT, Role.TRAINER, Role.STAFF, Role.CEO)
+  @Get('working-hours')
+  workingHours(@CurrentUser() user: JwtPayload) {
+    return this.gyms.listWorkingHours(user.gymId);
+  }
+
+  @Roles(Role.CEO)
+  @Put('working-hours')
+  replaceWorkingHours(@Body() dto: ReplaceWorkingHoursDto, @CurrentUser() user: JwtPayload) {
+    return this.gyms.replaceWorkingHours(user, dto);
   }
 
   @Post()

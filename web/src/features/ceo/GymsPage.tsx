@@ -3,7 +3,7 @@ import { ArrowLeftRight, Building2, Pencil, Plus, Power, Trash2 } from 'lucide-r
 import { useTrainers } from '../../hooks/useClientApi'
 import { useAllClients } from '../../hooks/useStaffApi'
 import { useAssignTrainerGym, useTransactionSummary, useUnassignTrainerGym } from '../../hooks/useCeoApi'
-import { useCreateGym, useDeleteGym, useMoveStaff, useNetworkGyms, useNetworkStaff, useSetStaffActive, useUpdateGym } from '../../hooks/useGymsApi'
+import { useCreateGym, useDeleteGym, useMoveStaff, useNetworkGyms, useNetworkStaff, useReplaceWorkingHours, useSetStaffActive, useUpdateGym, useWorkingHours } from '../../hooks/useGymsApi'
 import { useAuthStore } from '../../store/useAuthStore'
 import { AddStaffModal } from './AddStaffModal'
 import { Badge, Button, Card, SectionTitle } from '../../components/ui/Primitives'
@@ -210,6 +210,81 @@ function TrainerGymsEditor({ trainer, gyms }: { trainer: Trainer; gyms: Gym[] })
   )
 }
 
+const WEEKDAY_LABELS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
+
+// Часы работы текущей (активной) точки (P4.2): PUT применяется к точке,
+// на которой стоит CEO — чтобы настроить другую, переключитесь на неё.
+// День с выключенным чекбоксом не отправляется = «без ограничений».
+function WorkingHoursCard({ gymName }: { gymName?: string }) {
+  const { data: hours } = useWorkingHours()
+  const replace = useReplaceWorkingHours()
+  const [draft, setDraft] = useState<Record<number, { enabled: boolean; open: string; close: string }>>({})
+  const [loaded, setLoaded] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  if (hours && !loaded) {
+    setLoaded(true)
+    const next: typeof draft = {}
+    for (let i = 0; i <= 6; i++) next[i] = { enabled: false, open: '10:00', close: '22:00' }
+    for (const h of hours) next[h.weekday] = { enabled: true, open: h.open, close: h.close }
+    setDraft(next)
+  }
+
+  function save() {
+    const items = Object.entries(draft)
+      .filter(([, v]) => v.enabled)
+      .map(([weekday, v]) => ({ weekday: Number(weekday), open: v.open, close: v.close }))
+    setError(null)
+    replace.mutate(items, {
+      onError: (err) => setError(err instanceof ApiError ? err.message : 'Не удалось сохранить часы работы'),
+    })
+  }
+
+  const inputCls = 'w-24 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-2 py-1 text-sm'
+
+  return (
+    <Card>
+      <SectionTitle
+        title="Часы работы"
+        subtitle={`Активная точка: ${gymName ?? '—'} · дни без ограничений не отправляются; занятия и слоты вне часов отклоняются, серии пропускают это время`}
+      />
+      {error && <div className="mb-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>}
+      <div className="flex flex-col gap-1.5">
+        {WEEKDAY_LABELS.map((label, weekday) => {
+          const row = draft[weekday]
+          return (
+            <div key={weekday} className={`flex items-center gap-3 rounded-lg px-3 py-1.5 text-sm ${row?.enabled ? 'bg-[var(--surface-sunken)]' : 'opacity-60'}`}>
+              <label className="flex w-10 cursor-pointer items-center gap-1.5 font-medium">
+                <input
+                  type="checkbox"
+                  checked={!!row?.enabled}
+                  onChange={(e) => setDraft((d) => ({ ...d, [weekday]: { ...d[weekday], enabled: e.target.checked } }))}
+                  className="h-4 w-4 accent-[var(--accent)]"
+                />
+                {label}
+              </label>
+              {row?.enabled ? (
+                <>
+                  <input type="time" value={row.open} onChange={(e) => setDraft((d) => ({ ...d, [weekday]: { ...d[weekday], open: e.target.value } }))} className={inputCls} />
+                  <span className="text-[var(--text-faint)]">—</span>
+                  <input type="time" value={row.close} onChange={(e) => setDraft((d) => ({ ...d, [weekday]: { ...d[weekday], close: e.target.value } }))} className={inputCls} />
+                </>
+              ) : (
+                <span className="text-xs text-[var(--text-faint)]">без ограничений</span>
+              )}
+            </div>
+          )
+        })}
+      </div>
+      <div className="mt-3">
+        <Button size="sm" onClick={save} disabled={!loaded || replace.isPending}>
+          Сохранить часы работы
+        </Button>
+      </div>
+    </Card>
+  )
+}
+
 export function GymsPage() {
   const { data: gyms } = useNetworkGyms()
   const { data: staff } = useNetworkStaff()
@@ -344,6 +419,8 @@ export function GymsPage() {
           )
         })}
       </div>
+
+      <WorkingHoursCard gymName={gyms.find((g) => g.id === currentGymId)?.name} />
 
       <Card>
         <SectionTitle

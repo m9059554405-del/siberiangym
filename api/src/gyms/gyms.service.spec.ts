@@ -61,3 +61,67 @@ describe('GymsService.setStaffActive (P3.9)', () => {
     expect(activityLog.log).not.toHaveBeenCalled();
   });
 });
+
+// Часы работы точки (P4.2): PUT — замена всего набора, дни вне списка
+// и пустой список снимают ограничения; валидация до транзакции.
+describe('GymsService.replaceWorkingHours (P4.2)', () => {
+  function makeHoursService() {
+    const prisma: any = {
+      gymWorkingHours: {
+        findMany: jest.fn().mockResolvedValue([{ id: 'h1', gymId: 'gym1', weekday: 1, open: '10:00', close: '22:00' }]),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+        createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma)),
+    };
+    const activityLog: any = { log: jest.fn() };
+    return { service: new GymsService(prisma, activityLog), prisma, activityLog };
+  }
+
+  it('валидный набор заменяет прежний в одной транзакции и пишет журнал', async () => {
+    const { service, prisma, activityLog } = makeHoursService();
+
+    const result = await service.replaceWorkingHours(ACTOR, {
+      items: [
+        { weekday: 1, open: '10:00', close: '22:00' },
+        { weekday: 6, open: '11:00', close: '20:00' },
+      ],
+    });
+
+    expect(prisma.gymWorkingHours.deleteMany).toHaveBeenCalledWith({ where: { gymId: 'gym1' } });
+    expect(prisma.gymWorkingHours.createMany).toHaveBeenCalledWith({
+      data: expect.arrayContaining([
+        expect.objectContaining({ gymId: 'gym1', weekday: 1, open: '10:00', close: '22:00' }),
+        expect.objectContaining({ gymId: 'gym1', weekday: 6, open: '11:00', close: '20:00' }),
+      ]),
+    });
+    expect(result).toEqual([{ id: 'h1', gymId: 'gym1', weekday: 1, open: '10:00', close: '22:00' }]);
+    expect(activityLog.log).toHaveBeenCalled();
+  });
+
+  it('пустой список снимает все ограничения', async () => {
+    const { service, prisma } = makeHoursService();
+
+    await service.replaceWorkingHours(ACTOR, { items: [] });
+
+    expect(prisma.gymWorkingHours.deleteMany).toHaveBeenCalled();
+    expect(prisma.gymWorkingHours.createMany).not.toHaveBeenCalled();
+  });
+
+  it('дубликат дня недели отклоняется до транзакции', async () => {
+    const { service, prisma } = makeHoursService();
+
+    await expect(
+      service.replaceWorkingHours(ACTOR, { items: [{ weekday: 1, open: '10:00', close: '22:00' }, { weekday: 1, open: '12:00', close: '22:00' }] }),
+    ).rejects.toThrow(BadRequestException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('открытие позже закрытия отклоняется', async () => {
+    const { service } = makeHoursService();
+
+    await expect(
+      service.replaceWorkingHours(ACTOR, { items: [{ weekday: 1, open: '22:00', close: '10:00' }] }),
+    ).rejects.toThrow(BadRequestException);
+  });
+});

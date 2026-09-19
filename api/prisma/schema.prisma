@@ -98,8 +98,27 @@ model Gym {
   trainerGyms        TrainerGym[]
   checkins           CheckinEntry[]
   leads              Lead[]
+  workingHours       GymWorkingHours[]
+  cleaningZones      CleaningZone[]
 
   @@map("gyms")
+}
+
+// Часы работы точки (P4.2) — настраиваются по дням недели владельцем.
+// Строка на день: weekday 0=Пн … 6=Вс (та же конвенция, что weekdays серий),
+// open/close — "HH:MM". Дня без строки нет в списке = ограничений на этот
+// день нет (зал не настроил расписание — обратно совместимо с точками,
+// созданными до P4.2, и не ломает существующие тесты).
+model GymWorkingHours {
+  id      String @id @default(cuid())
+  gymId   String @map("gym_id")
+  gym     Gym    @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  weekday Int
+  open    String
+  close   String
+
+  @@unique([gymId, weekday])
+  @@map("gym_working_hours")
 }
 
 // --- Авторизация ---
@@ -991,6 +1010,12 @@ model MembershipPricing {
   personalPack5  Int    @map("personal_pack5")
   groupSingle    Int    @map("group_single")
   groupMonthly   Int    @map("group_monthly")
+  // Тарифы сопровождения тренера (P4.2) — раньше цены были константой в
+  // коде (2500/4900/15900 из демо-версии) и не настраивались точкой.
+  // Дефолты совпадают со старой константой, миграция ничего не меняет.
+  escortBasic      Int @default(2500)  @map("escort_basic")
+  escortCoaching   Int @default(4900)  @map("escort_coaching")
+  escortIndividual Int @default(15900) @map("escort_individual")
 
   @@map("membership_pricing")
 }
@@ -1226,14 +1251,21 @@ model Equipment {
 
 // --- Клининг ---
 
-enum CleaningArea {
-  FLOOR
-  LIGHTING
-  SURFACES
-  MIRRORS
-  RESTROOMS
-  LOCKERS
-  WINDOWS
+// Зона уборки точки (P4.2) — раньше был глобальный enum из 7 значений,
+// перенесённый как константа из демо-версии: зал не мог ни переименовать,
+// ни добавить/убрать зону. Теперь список зон настраивается владельцем под
+// конкретный зал; чек-листы при создании получают текущий набор зон.
+model CleaningZone {
+  id       String @id @default(cuid())
+  gymId    String @map("gym_id")
+  gym      Gym    @relation(fields: [gymId], references: [id])
+  name     String
+  position Int    @default(0)
+
+  items CleaningChecklistItem[]
+
+  @@unique([gymId, name])
+  @@map("cleaning_zones")
 }
 
 model CleaningChecklist {
@@ -1253,10 +1285,14 @@ model CleaningChecklistItem {
   id          String            @id @default(cuid())
   checklistId String            @map("checklist_id")
   checklist   CleaningChecklist @relation(fields: [checklistId], references: [id], onDelete: Cascade)
-  area        CleaningArea
+  // Зона ссылки без Cascade: удалить зону, на которую ссылается история
+  // чек-листов, нельзя (FK Restrict) — сервис проверяет это заранее и
+  // отвечает 409 с понятным текстом.
+  zoneId      String            @map("zone_id")
+  zone        CleaningZone      @relation(fields: [zoneId], references: [id])
   done        Boolean           @default(false)
 
-  @@unique([checklistId, area])
+  @@unique([checklistId, zoneId])
   @@map("cleaning_checklist_items")
 }
 

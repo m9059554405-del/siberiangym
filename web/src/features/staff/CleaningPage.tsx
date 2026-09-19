@@ -1,17 +1,7 @@
 import { useMemo, useState } from 'react'
 import { CheckCircle2, Circle, Plus } from 'lucide-react'
-import { useCleaningChecklists, useCreateCleaningChecklist, useToggleCleaningItem } from '../../hooks/useOpsApi'
+import { useCleaningChecklists, useCleaningZones, useCreateCleaningChecklist, useToggleCleaningItem } from '../../hooks/useOpsApi'
 import { Badge, Button, Card, SectionTitle } from '../../components/ui/Primitives'
-
-const AREA_LABELS: Record<string, string> = {
-  FLOOR: 'Пол',
-  LIGHTING: 'Освещение',
-  SURFACES: 'Поверхности',
-  MIRRORS: 'Зеркала',
-  RESTROOMS: 'Санузлы',
-  LOCKERS: 'Шкафчики',
-  WINDOWS: 'Окна',
-}
 
 function todayIso(): string {
   const d = new Date()
@@ -20,6 +10,9 @@ function todayIso(): string {
 
 export function CleaningPage() {
   const { data: checklists } = useCleaningChecklists()
+  // Названия зон — настройка точки (P4.2), приходят с сервера.
+  const { data: zones } = useCleaningZones()
+  const zoneName = useMemo(() => new Map((zones ?? []).map((z) => [z.id, z.name])), [zones])
   const toggleItem = useToggleCleaningItem()
   const createChecklist = useCreateCleaningChecklist()
   const todayStr = todayIso()
@@ -46,12 +39,12 @@ export function CleaningPage() {
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {todayChecklist.items.map((it) => (
               <button
-                key={it.area}
-                onClick={() => toggleItem.mutate({ checklistId: todayChecklist.id, area: it.area })}
+                key={it.zoneId}
+                onClick={() => toggleItem.mutate({ checklistId: todayChecklist.id, zoneId: it.zoneId })}
                 className={`tap-scale flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${it.done ? 'border-green-200 bg-green-50 text-green-700' : 'border-[var(--border)] bg-[var(--surface-raised)] text-[var(--text-muted)]'}`}
               >
                 {it.done ? <CheckCircle2 size={15} /> : <Circle size={15} />}
-                {AREA_LABELS[it.area]}
+                {it.zone?.name ?? zoneName.get(it.zoneId) ?? '—'}
               </button>
             ))}
           </div>

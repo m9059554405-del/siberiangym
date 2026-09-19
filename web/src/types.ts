@@ -437,6 +437,26 @@ export interface MembershipPricing {
   personalPack5: number
   groupSingle: number
   groupMonthly: number
+  escortBasic: number
+  escortCoaching: number
+  escortIndividual: number
+}
+
+// P4.2: часы работы точки — день недели без записи = ограничений нет.
+export interface WorkingHours {
+  id: string
+  gymId: string
+  weekday: number // 0=Пн … 6=Вс
+  open: string // "HH:MM"
+  close: string
+}
+
+// P4.2: зоны уборки — настройка точки (раньше глобальная константа из 7 зон).
+export interface CleaningZone {
+  id: string
+  gymId: string
+  name: string
+  position: number
 }
 
 // P3.19: реестр транзакций пагинирован — аналитика считается на сервере

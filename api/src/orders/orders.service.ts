@@ -8,7 +8,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { AcquiringService } from '../acquiring/acquiring.service';
 import { CreateOrderDto, OrderLineInputDto } from './dto/create-order.dto';
 import { formatForTariff, MEMBERSHIP_LABEL, VALIDITY_DAYS, VISITS_TOTAL } from '../clients/membership.const';
-import { TARIFF_NAME, TARIFF_PRICE } from '../clients/tariffs.const';
+import { ESCORT_PRICE_COLUMN, ESCORT_TARIFFS, TARIFF_NAME } from '../clients/tariffs.const';
 import { isMinor as computeIsMinor } from '../clients/age.util';
 import { amountsMatchToKopeck, parseFiscalReceiptQr } from './receipt-qr.util';
 import { overlaps, type TimeRange } from '../schedule/time-overlap.util';
@@ -208,7 +208,7 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
 
       case OrderLineType.TARIFF_CHANGE: {
         const tariff = meta.tariff as Tariff;
-        if (!tariff || !(tariff in TARIFF_PRICE)) throw new BadRequestException('Не указан или некорректен тариф');
+        if (!tariff || !ESCORT_TARIFFS.includes(tariff)) throw new BadRequestException('Не указан или некорректен тариф');
         await this.assertGuardianConsentsIfMinor(gymId, clientId);
         const client = await this.prisma.client.findFirst({ where: { id: clientId, gymId } });
         if (!client) throw new NotFoundException('Клиент не найден');
@@ -216,10 +216,13 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
         if (!trainerId) throw new BadRequestException('Не указан тренер — сначала выберите тренера');
         const trainer = await this.prisma.trainer.findFirst({ where: { id: trainerId, gymId } });
         if (!trainer) throw new NotFoundException('Тренер не найден');
+        // Цена тарифа — настройка точки (P4.2), не константа кода.
+        const pricing = await this.prisma.membershipPricing.findUnique({ where: { gymId } });
+        if (!pricing) throw new BadRequestException('Цены зала ещё не настроены — обратитесь к владельцу');
         return {
           type: OrderLineType.TARIFF_CHANGE,
           refId: trainerId,
-          amount: TARIFF_PRICE[tariff],
+          amount: pricing[ESCORT_PRICE_COLUMN[tariff]],
           meta: { tariff, trainerId },
         };
       }

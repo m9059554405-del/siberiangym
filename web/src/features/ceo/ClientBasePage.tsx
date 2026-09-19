@@ -16,6 +16,14 @@ const PRICE_ROWS: { key: keyof MembershipPricing; networkKey: keyof MembershipPr
   { key: 'pack20', networkKey: 'pack20Network', label: 'Пакет на 20 занятий' },
 ]
 
+// Тарифы сопровождения (P4.2) — раньше константа из демо-версии в коде,
+// теперь цена каждой точки; сетевого варианта у них нет.
+const ESCORT_ROWS: { key: keyof MembershipPricing; label: string }[] = [
+  { key: 'escortBasic', label: 'Тариф «Базовый»' },
+  { key: 'escortCoaching', label: 'Тариф «Ведение»' },
+  { key: 'escortIndividual', label: 'Тариф «Индивидуальные тренировки»' },
+]
+
 // Раньше цены можно было поменять только напрямую в базе — ни одной формы
 // не существовало. Понадобилось для P1.2: без этого сетевые цены (второй
 // столбец) было бы нечем настроить через приложение вообще.
@@ -32,6 +40,7 @@ function PricingSection() {
       single: pricing!.single, monthly: pricing!.monthly, pack10: pricing!.pack10, pack20: pricing!.pack20,
       singleNetwork: pricing!.singleNetwork, monthlyNetwork: pricing!.monthlyNetwork,
       pack10Network: pricing!.pack10Network, pack20Network: pricing!.pack20Network,
+      escortBasic: pricing!.escortBasic, escortCoaching: pricing!.escortCoaching, escortIndividual: pricing!.escortIndividual,
     })
     setEditing(true)
   }
@@ -79,6 +88,20 @@ function PricingSection() {
               <span className="text-xs text-[var(--text-faint)]">
                 {pricing[networkKey] != null ? `вся сеть — ${formatMoney(pricing[networkKey] as number)} ₽` : 'вся сеть — не настроено'}
               </span>
+            )}
+          </div>
+        ))}
+        {ESCORT_ROWS.map(({ key, label }) => (
+          <div key={key} className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-lg bg-[var(--surface-sunken)] px-3 py-2 text-sm">
+            <span>{label}</span>
+            {editing ? (
+              <input
+                type="number" min={0} value={(draft[key] as number) ?? 0}
+                onChange={(e) => setDraft((d) => ({ ...d, [key]: Number(e.target.value) }))}
+                className="w-24 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-2 py-1 text-sm"
+              />
+            ) : (
+              <span className="font-medium">{formatMoney(pricing[key] as number)} ₽</span>
             )}
           </div>
         ))}

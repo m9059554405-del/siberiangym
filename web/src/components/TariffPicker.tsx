@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Check, Info } from 'lucide-react'
-import { TARIFFS, tariffById } from '../data/tariffs'
+import { TARIFFS, tariffById, tariffPrice } from '../data/tariffs'
+import { usePricing } from '../hooks/useClientApi'
 import { Badge, Button, Card } from './ui/Primitives'
 import { Modal } from './ui/Modal'
 import type { Tariff } from '../types'
@@ -14,6 +15,8 @@ export function TariffPicker({
   onSelect: (tariff: Tariff) => void
 }) {
   const [infoTariff, setInfoTariff] = useState<Tariff | null>(null)
+  // Цена тарифа — настройка точки (P4.2), не константа из демо-версии.
+  const { data: pricing } = usePricing()
   const infoInfo = tariffById(infoTariff)
 
   return (
@@ -40,7 +43,7 @@ export function TariffPicker({
                 </div>
               </div>
               <div className="mt-2 flex items-center justify-between">
-                <span className="text-lg font-bold">{formatMoney(t.price)} ₽/мес</span>
+                <span className="text-lg font-bold">{formatMoney(tariffPrice(t.id, pricing))} ₽/мес</span>
                 <Button size="sm" variant={isCurrent ? 'secondary' : 'primary'} disabled={isCurrent} onClick={() => onSelect(t.id)}>
                   {isCurrent ? 'Выбран' : 'Выбрать'}
                 </Button>
@@ -62,7 +65,7 @@ export function TariffPicker({
                 </li>
               ))}
             </ul>
-            <p className="text-base font-bold">{formatMoney(infoInfo.price)} ₽ / мес</p>
+            <p className="text-base font-bold">{formatMoney(infoTariff ? tariffPrice(infoTariff, pricing) : 0)} ₽ / мес</p>
           </div>
         )}
       </Modal>

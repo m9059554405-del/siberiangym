@@ -20,4 +20,9 @@ export class UpdatePricingDto {
   @IsOptional() @IsInt() @Min(0) personalPack5?: number;
   @IsOptional() @IsInt() @Min(0) groupSingle?: number;
   @IsOptional() @IsInt() @Min(0) groupMonthly?: number;
+
+  // Тарифы сопровождения тренера (P4.2) — раньше константа в коде.
+  @IsOptional() @IsInt() @Min(0) escortBasic?: number;
+  @IsOptional() @IsInt() @Min(0) escortCoaching?: number;
+  @IsOptional() @IsInt() @Min(0) escortIndividual?: number;
 }

@@ -175,6 +175,26 @@ describe('OrdersService.createOrder', () => {
     );
   });
 
+  it('смена тарифа сопровождения берёт цену из настроек точки (P4.2), а не из константы', async () => {
+    const { service, prisma } = makeService();
+    prisma.client.findFirst
+      .mockResolvedValueOnce({ id: 'client1', userId: 'user1', name: 'Иван' })
+      .mockResolvedValueOnce({ birthday: new Date('1990-01-01') })
+      .mockResolvedValueOnce({ id: 'client1', trainerId: 'trainer1' });
+    prisma.gym = { findUniqueOrThrow: jest.fn().mockResolvedValue({ selfTrainingMinAge: 18 }) };
+    prisma.trainer = { findFirst: jest.fn().mockResolvedValue({ id: 'trainer1', name: 'Анна' }) };
+    prisma.membershipPricing = { findUnique: jest.fn().mockResolvedValue({ escortBasic: 3000, escortCoaching: 5500, escortIndividual: 17000 }) };
+    prisma.order.create.mockResolvedValue({ id: 'created' });
+
+    await service.createOrder(ACTOR, {
+      clientId: 'client1', lines: [{ type: 'TARIFF_CHANGE', meta: { tariff: 'COACHING' } }],
+    } as never);
+
+    expect(prisma.order.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ totalAmount: 5500, lines: { create: [expect.objectContaining({ type: 'TARIFF_CHANGE', amount: 5500 })] } }) }),
+    );
+  });
+
   it('переполненное групповое занятие отклоняется до создания заказа', async () => {
     const { service, prisma } = makeService();
     prisma.client.findFirst

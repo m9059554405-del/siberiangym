@@ -1,23 +1,114 @@
 import { useMemo, useState } from 'react'
-import { CheckCircle2, Circle, Send } from 'lucide-react'
-import { useCleaningChecklists, useToggleCleaningItem } from '../../hooks/useOpsApi'
+import { CheckCircle2, Circle, Pencil, Plus, Send, Trash2 } from 'lucide-react'
+import { useCleaningChecklists, useCleaningZones, useCreateCleaningZone, useDeleteCleaningZone, useToggleCleaningItem, useUpdateCleaningZone } from '../../hooks/useOpsApi'
 import { useDirectorMessages, useReplyDirectorMessage } from '../../hooks/useCeoApi'
 import { Badge, Button, Card, EmptyState, SectionTitle, Tabs } from '../../components/ui/Primitives'
 import { Avatar } from '../../components/ui/Avatar'
 import { EquipmentServiceList } from '../../components/EquipmentServiceList'
+import { ApiError } from '../../lib/api'
 import { getInitials } from '../../lib/format'
-
-const AREA_LABELS: Record<string, string> = {
-  FLOOR: 'Пол', LIGHTING: 'Освещение', SURFACES: 'Поверхности', MIRRORS: 'Зеркала', RESTROOMS: 'Санузлы', LOCKERS: 'Шкафчики', WINDOWS: 'Окна',
-}
 
 function todayIso(): string {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+// Управление зонами уборки точки (P4.2) — настройка под конкретный зал:
+// добавить, переименовать, убрать неиспользуемую. Зона с историей
+// чек-листов не удаляется (история должна сохраниться) — можно переименовать.
+function CleaningZonesEditor() {
+  const { data: zones } = useCleaningZones()
+  const createZone = useCreateCleaningZone()
+  const updateZone = useUpdateCleaningZone()
+  const deleteZone = useDeleteCleaningZone()
+  const [name, setName] = useState('')
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  function submitCreate() {
+    const trimmed = name.trim()
+    if (trimmed.length < 2) return
+    setError(null)
+    createZone.mutate({ name: trimmed }, {
+      onSuccess: () => setName(''),
+      onError: (err) => setError(err instanceof ApiError ? err.message : 'Не удалось добавить зону'),
+    })
+  }
+
+  function submitRename(id: string) {
+    const trimmed = renameDraft.trim()
+    if (trimmed.length < 2) return
+    setError(null)
+    updateZone.mutate({ id, name: trimmed }, {
+      onSuccess: () => setRenamingId(null),
+      onError: (err) => setError(err instanceof ApiError ? err.message : 'Не удалось переименовать зону'),
+    })
+  }
+
+  function remove(id: string, zoneName: string) {
+    setError(null)
+    deleteZone.mutate(id, {
+      onError: (err) => setError(err instanceof ApiError ? err.message : `Не удалось удалить зону «${zoneName}»`),
+    })
+  }
+
+  return (
+    <Card>
+      <SectionTitle title="Зоны уборки точки" subtitle="Настраиваются под этот зал (P4.2): чек-листы создаются из текущего списка зон" />
+      {error && <div className="mb-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>}
+      <div className="flex flex-col gap-1.5">
+        {(zones ?? []).map((z) => (
+          <div key={z.id} className="flex items-center gap-2 rounded-lg bg-[var(--surface-sunken)] px-3 py-2 text-sm">
+            {renamingId === z.id ? (
+              <>
+                <input
+                  autoFocus
+                  value={renameDraft}
+                  onChange={(e) => setRenameDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') submitRename(z.id); if (e.key === 'Escape') setRenamingId(null) }}
+                  className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-2 py-1 text-sm"
+                />
+                <Button size="sm" onClick={() => submitRename(z.id)} disabled={updateZone.isPending}>Сохранить</Button>
+                <Button size="sm" variant="secondary" onClick={() => setRenamingId(null)}>Отмена</Button>
+              </>
+            ) : (
+              <>
+                <span className="flex-1">{z.name}</span>
+                <Button size="sm" variant="secondary" title="Переименовать" onClick={() => { setRenamingId(z.id); setRenameDraft(z.name) }}>
+                  <Pencil size={13} />
+                </Button>
+                <Button size="sm" variant="danger" title="Удалить неиспользуемую зону" onClick={() => remove(z.id, z.name)} disabled={deleteZone.isPending}>
+                  <Trash2 size={13} />
+                </Button>
+              </>
+            )}
+          </div>
+        ))}
+        {(zones ?? []).length === 0 && (
+          <p className="text-sm text-[var(--text-faint)]">Зон нет — чек-листы не смогут создаться. Добавьте хотя бы одну.</p>
+        )}
+      </div>
+      <div className="mt-3 flex gap-2">
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && submitCreate()}
+          placeholder="Новая зона (например, «Бассейн»)"
+          className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-1.5 text-sm outline-none focus:border-[var(--accent)]"
+        />
+        <Button size="sm" onClick={submitCreate} disabled={name.trim().length < 2 || createZone.isPending}>
+          <Plus size={13} /> Добавить
+        </Button>
+      </div>
+    </Card>
+  )
+}
+
 export function MaintenancePage() {
   const { data: checklists } = useCleaningChecklists()
+  const { data: zones } = useCleaningZones()
+  const zoneName = useMemo(() => new Map((zones ?? []).map((z) => [z.id, z.name])), [zones])
   const toggleItem = useToggleCleaningItem()
   const { data: messages } = useDirectorMessages()
   const replyMessage = useReplyDirectorMessage()
@@ -57,18 +148,20 @@ export function MaintenancePage() {
 
       {tab === 'cleaning' && (
         <div className="flex flex-col gap-4">
+          <CleaningZonesEditor />
+
           {todayChecklist && (
             <Card className="border-2 border-[var(--accent)]">
               <SectionTitle title="Сегодня" subtitle={`${todayChecklist.date.slice(0, 10)} · ответственный: ${todayChecklist.responsibleName}`} action={<Badge tone="accent">Текущий день</Badge>} />
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {todayChecklist.items.map((it) => (
                   <button
-                    key={it.area}
-                    onClick={() => toggleItem.mutate({ checklistId: todayChecklist.id, area: it.area })}
+                    key={it.zoneId}
+                    onClick={() => toggleItem.mutate({ checklistId: todayChecklist.id, zoneId: it.zoneId })}
                     className={`tap-scale flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${it.done ? 'border-green-200 bg-green-50 text-green-700' : 'border-[var(--border)] bg-[var(--surface-raised)] text-[var(--text-muted)]'}`}
                   >
                     {it.done ? <CheckCircle2 size={15} /> : <Circle size={15} />}
-                    {AREA_LABELS[it.area]}
+                    {it.zone?.name ?? zoneName.get(it.zoneId) ?? '—'}
                   </button>
                 ))}
               </div>
