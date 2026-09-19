@@ -1,7 +1,8 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { Membership } from '@prisma/client';
+import { Membership, OrderLineType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActivityLogService } from '../activity-log/activity-log.service';
+import { OrdersService } from '../orders/orders.service';
 import { CreateClientDto } from './dto/create-client.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
 import { CreateLoginDto } from './dto/create-login.dto';
@@ -12,8 +13,6 @@ import {
   formatForTariff,
   FREEZE_LIMIT_DAYS,
   startOfDay,
-  VALIDITY_DAYS,
-  VISITS_TOTAL,
 } from './membership.const';
 import { isMinor as computeIsMinor } from './age.util';
 import { AuthService } from '../auth/auth.service';
@@ -29,6 +28,7 @@ export class ClientsService {
     private readonly auth: AuthService,
     private readonly email: EmailService,
     private readonly gyms: GymsService,
+    private readonly orders: OrdersService,
   ) {}
 
   // Межточечный поиск клиента (P1.5) — клиент с NETWORK-абонементом может
@@ -193,19 +193,26 @@ export class ClientsService {
   async create(actor: JwtPayload, dto: CreateClientDto) {
     const today = new Date();
     const format = formatForTariff(dto.tariff);
-    const validityDays = VALIDITY_DAYS[dto.membershipType];
-    const expiresAt = validityDays ? new Date(today.getTime() + validityDays * 86400000) : null;
 
     // Несовершеннолетнему клиенту доступен только формат "с тренером"
     // (P0.6, ГК РФ ст. 26/28) — на уровне API, а не только в интерфейсе:
     // карточка не должна сохраниться без выбранного тренера.
     const minAge = await this.getSelfTrainingMinAge(actor.gymId);
-    if (computeIsMinor(new Date(dto.birthday), minAge) && !dto.trainerId) {
+    const isMinor = computeIsMinor(new Date(dto.birthday), minAge);
+    if (isMinor && !dto.trainerId) {
       throw new BadRequestException(
         `Клиенту младше ${minAge} лет недоступны самостоятельные тренировки — сначала выберите тренера`,
       );
     }
 
+    // P0.2 (хвост): регистрация больше не активирует абонемент "бесплатно".
+    // Карточка создаётся без абонемента, начальная покупка оформляется
+    // обычным путём P0.2 — Order с MEMBERSHIP_PURCHASE (ценовой снэпшот из
+    // прайса точки) сразу уходит в AWAITING_PAYMENT наличными, и абонемент
+    // реально создастся только после подтверждения чека администратором.
+    // Несовершеннолетнему абонемент без согласий законного представителя не
+    // продаётся вовсе (P0.6) — заказ не создаётся, продажа пойдёт через
+    // обычный путь после оформления представителя.
     const client = await this.prisma.client.create({
       data: {
         gymId: actor.gymId,
@@ -218,16 +225,6 @@ export class ClientsService {
         tariff: dto.tariff,
         format,
         joinedAt: today,
-        membership: {
-          create: {
-            type: dto.membershipType,
-            purchasedAt: today,
-            expiresAt,
-            visitsTotal: VISITS_TOTAL[dto.membershipType],
-            visitsLeft: VISITS_TOTAL[dto.membershipType],
-            status: 'ACTIVE',
-          },
-        },
         formatHistory: {
           create: { trainerId: dto.trainerId, format, from: today, to: null },
         },
@@ -235,13 +232,26 @@ export class ClientsService {
       include: { membership: true },
     });
 
+    let pendingOrder: Awaited<ReturnType<OrdersService['submitCash']>> | null = null;
+    if (!isMinor) {
+      const order = await this.orders.createOrder(actor, {
+        clientId: client.id,
+        lines: [{ type: OrderLineType.MEMBERSHIP_PURCHASE, meta: { membershipType: dto.membershipType, scope: 'SINGLE_GYM' } }],
+      });
+      pendingOrder = await this.orders.submitCash(actor, order.id);
+    }
+
     await this.activityLog.log(
       actor,
       'Зарегистрировал клиента',
       client.name,
-      dto.trainerId ? 'С тренером и абонементом' : 'Самостоятельные тренировки',
+      isMinor
+        ? 'Несовершеннолетний: абонемент продаётся после согласий законного представителя'
+        : dto.trainerId
+          ? 'С тренером; абонемент оформлен заказом на кассе'
+          : 'Абонемент оформлен заказом на кассе',
     );
-    return this.attachIsMinor(client, minAge);
+    return { ...this.attachIsMinor(client, minAge), pendingOrder };
   }
 
   async update(actor: JwtPayload, id: string, dto: UpdateClientDto) {

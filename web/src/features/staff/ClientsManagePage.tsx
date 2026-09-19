@@ -179,6 +179,8 @@ export function ClientsManagePage() {
 
   const [createOpen, setCreateOpen] = useState(false)
   const [createDraft, setCreateDraft] = useState<ClientDraft>(EMPTY_DRAFT)
+  // P0.2: после регистрации абонемент — заказ на кассе, показываем плашку.
+  const [createPendingOrder, setCreatePendingOrder] = useState<Order | null>(null)
 
   const [editingId, setEditingId] = useState<string | null>(null)
   // clientId только на момент открытой карточки — до P0.6 здесь стоял
@@ -237,7 +239,12 @@ export function ClientsManagePage() {
       tariff: createDraft.trainerId ? createDraft.tariff : null,
       membershipType: createDraft.membershipType,
     }
-    createClient.mutate(payload, { onSuccess: () => setCreateOpen(false) })
+    createClient.mutate(payload, {
+      onSuccess: (created) => {
+        setCreateOpen(false)
+        setCreatePendingOrder(created.pendingOrder ?? null)
+      },
+    })
   }
 
   function openEdit(c: Client) {
@@ -264,6 +271,7 @@ export function ClientsManagePage() {
 
   return (
     <div className="flex flex-col gap-5">
+      {createPendingOrder && <OrderPendingNotice order={createPendingOrder} onDismiss={() => setCreatePendingOrder(null)} />}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-bold">Клиенты</h1>
@@ -376,11 +384,14 @@ export function ClientsManagePage() {
                 <option key={m} value={m}>{MEMBERSHIP_LABEL[m]} — {formatMoney(pricing[m.toLowerCase() as 'single' | 'monthly' | 'pack10' | 'pack20'])} ₽</option>
               ))}
             </select>
+            <span className="text-xs text-[var(--text-faint)]">
+              Абонемент активируется не сразу: оформится заказом на кассе и вступит в силу после подтверждения чека
+            </span>
           </Field>
           {isLikelyMinor(createDraft.birthday) && !createDraft.trainerId && (
             <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
               По дате рождения клиент несовершеннолетний — самостоятельные тренировки без тренера запрещены. Выберите тренера, чтобы продолжить.
-              Законного представителя и его согласия нужно будет добавить сразу после создания карточки — без них нельзя будет оформить абонемент.
+              Законного представителя и его согласия нужно будет добавить сразу после создания карточки — без них нельзя будет оформить абонемент заказом.
             </div>
           )}
           <Button

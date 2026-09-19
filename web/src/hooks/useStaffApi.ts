@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
-import type { Checkin, CheckinScanResult, Client, ClubPost, ClubPostType, Gender, Lead, MembershipType, Membership, Tariff } from '../types'
+import type { Checkin, CheckinScanResult, Client, ClubPost, ClubPostType, Gender, Lead, MembershipType, Membership, Order, Tariff } from '../types'
 
 // network=true (P1.7) — клиенты всей сети: нужно CEO-отчёту «занятость
 // тренеров» (подопечные тренера живут в разных точках). Бэкенд учитывает
@@ -45,11 +45,18 @@ export interface CreateClientPayload {
   membershipType: MembershipType
 }
 
+// P0.2 (хвост): регистрация создаёт карточку БЕЗ активного абонемента —
+// начальная покупка уходит обычным заказом (pendingOrder в AWAITING_PAYMENT),
+// абонемент появится после подтверждения чека. Несовершеннолетним заказ
+// не создаётся (нужны согласия представителя, P0.6) — pendingOrder null.
 export function useCreateClient() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (dto: CreateClientPayload) => api.post<Client>('/clients', dto),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['clients'] }),
+    mutationFn: (dto: CreateClientPayload) => api.post<Client & { pendingOrder: Order | null }>('/clients', dto),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['clients'] })
+      qc.invalidateQueries({ queryKey: ['orders'] })
+    },
   })
 }
 
