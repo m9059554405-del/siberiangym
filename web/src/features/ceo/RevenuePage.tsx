@@ -1,14 +1,18 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { Download } from 'lucide-react'
-import { useTransactions } from '../../hooks/useCeoApi'
+import { ChevronLeft, ChevronRight, Download } from 'lucide-react'
+import { useTransactions, useTransactionSummary } from '../../hooks/useCeoApi'
 import { useAuthStore } from '../../store/useAuthStore'
-import { NetworkGymFilter, defaultGymScope, inGymScope } from './NetworkGymFilter'
-import { getRevenueByDay, getRevenueByGym, getRevenueByMonth, getTopTrainersByRevenue, getTotalRevenue } from '../../lib/ceoSelectors'
+import { NetworkGymFilter, defaultGymScope } from './NetworkGymFilter'
 import { Avatar } from '../../components/ui/Avatar'
-import { Button, Card, SectionTitle, StatTile, Tabs } from '../../components/ui/Primitives'
+import { Button, Card, EmptyState, SectionTitle, StatTile, Tabs } from '../../components/ui/Primitives'
 import { getInitials } from '../../lib/format'
 import type { TransactionCategory } from '../../types'
+
+// P3.19: аналитика (суммы, графики, топы) считается СЕРВЕРОМ по всей
+// истории (/transactions/summary), реестр подгружается постранично
+// (/transactions?page=...) — объём ответа больше не растёт с историей
+// клуба, а цифры не зависят от того, сколько строк загружено на экране.
 
 const CATEGORY_LABELS: Record<TransactionCategory, string> = {
   MEMBERSHIP: 'Абонементы', PERSONAL: 'Персональные', GROUP: 'Групповые', ANCILLARY: 'Сопутствующие', REFUND: 'Возвраты',
@@ -16,15 +20,23 @@ const CATEGORY_LABELS: Record<TransactionCategory, string> = {
 const CATEGORY_COLORS: Record<TransactionCategory, string> = {
   MEMBERSHIP: 'var(--ceo-accent)', PERSONAL: '#3b82f6', GROUP: '#7dd3fc', ANCILLARY: '#bfdbfe', REFUND: '#ef4444',
 }
+const CATEGORIES: TransactionCategory[] = ['MEMBERSHIP', 'PERSONAL', 'GROUP', 'ANCILLARY', 'REFUND']
 
 function fmt(n: number) {
   return n.toLocaleString('ru-RU') + ' ₽'
 }
 
+const REGISTRY_PAGE_SIZE = 20
+
 export function RevenuePage() {
-  const { data: transactions } = useTransactions()
   const [granularity, setGranularity] = useState<'day' | 'month'>('day')
   const [gymScope, setGymScope] = useState<string[]>(defaultGymScope)
+  const { data: summary } = useTransactionSummary(gymScope)
+
+  // Реестр последних транзакций — постранично, тем же фильтром точек.
+  const [page, setPage] = useState(1)
+  const feed = useTransactions(page, REGISTRY_PAGE_SIZE, { gymIds: gymScope })
+
   // P4.3: выгрузка для бухгалтерии — CSV по всей сети за выбранный период
   // (дефолт — текущий месяц). Скачивание идёт с Bearer-токеном через fetch,
   // поэтому обычный <a href> не подходит.
@@ -52,26 +64,12 @@ export function RevenuePage() {
     }
   }
 
-  // Фид уже отдаёт всю сеть (P1.7) — фильтр по точкам считается на клиенте,
-  // без перезагрузки данных. Дефолт — активная точка из переключателя
-  // в шапке; можно выбрать группу площадок или всю сеть.
-  const tx = useMemo(
-    () => (transactions ?? []).filter((t) => inGymScope(gymScope, t.gymId)),
-    [transactions, gymScope],
-  )
-  const byDay = useMemo(() => getRevenueByDay(tx, 30), [tx])
-  const byMonth = useMemo(() => getRevenueByMonth(tx), [tx])
-  const byGym = useMemo(() => getRevenueByGym(transactions ?? []), [transactions])
-  const topTrainers = useMemo(() => getTopTrainersByRevenue(tx), [tx])
-  const total = getTotalRevenue(tx)
+  if (!summary) return null
 
-  const points = granularity === 'day' ? byDay : byMonth
-
-  const categoryTotals = useMemo(() => {
-    const sums: Record<TransactionCategory, number> = { MEMBERSHIP: 0, PERSONAL: 0, GROUP: 0, ANCILLARY: 0, REFUND: 0 }
-    for (const t of tx) sums[t.category] += t.amount
-    return (Object.entries(sums) as [TransactionCategory, number][]).map(([category, value]) => ({ category, value }))
-  }, [tx])
+  const points = granularity === 'day' ? summary.byDay : summary.byMonth
+  const categoryTiles = CATEGORIES.map((category) => ({ category, value: summary.byCategory[category] }))
+  const topTrainers = summary.byTrainer.slice(0, 10)
+  const totalPages = feed.data ? Math.max(1, Math.ceil(feed.data.total / REGISTRY_PAGE_SIZE)) : 1
 
   return (
     <div className="flex flex-col gap-5">
@@ -80,7 +78,7 @@ export function RevenuePage() {
           <h1 className="text-xl font-bold">Выручка</h1>
           <p className="text-sm text-[var(--text-muted)]">По всей сети, по дням, по месяцам и по источникам дохода</p>
         </div>
-        <NetworkGymFilter value={gymScope} onChange={setGymScope} />
+        <NetworkGymFilter value={gymScope} onChange={(scope) => { setGymScope(scope); setPage(1) }} />
       </div>
 
       <Card className="flex flex-wrap items-end gap-3">
@@ -99,8 +97,8 @@ export function RevenuePage() {
       </Card>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatTile label="Выручка всего" value={fmt(total)} />
-        {categoryTotals.map((c) => (
+        <StatTile label="Выручка всего" value={fmt(summary.total)} />
+        {categoryTiles.map((c) => (
           <StatTile key={c.category} label={CATEGORY_LABELS[c.category]} value={fmt(c.value)} />
         ))}
       </div>
@@ -108,6 +106,7 @@ export function RevenuePage() {
       <Card>
         <SectionTitle
           title="Динамика выручки"
+          subtitle="Дни — за последние 30 дней, месяцы — за всю историю"
           action={<Tabs value={granularity} onChange={setGranularity} options={[{ value: 'day', label: 'По дням' }, { value: 'month', label: 'По месяцам' }]} />}
         />
         <div className="h-72">
@@ -116,13 +115,11 @@ export function RevenuePage() {
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
               <XAxis dataKey="key" fontSize={10} stroke="var(--text-faint)" tickFormatter={(v: string) => (granularity === 'day' ? v.slice(5) : v)} />
               <YAxis fontSize={11} stroke="var(--text-faint)" tickFormatter={(v: number) => `${Math.round(v / 1000)}k`} />
-              <Tooltip formatter={(v: any) => fmt(v)} />
+              <Tooltip formatter={(v: any) => fmt(v as number)} />
               <Legend wrapperStyle={{ fontSize: 12 }} formatter={(v: string) => CATEGORY_LABELS[v as TransactionCategory] ?? v} />
-              <Bar dataKey="MEMBERSHIP" stackId="a" fill={CATEGORY_COLORS.MEMBERSHIP} />
-              <Bar dataKey="PERSONAL" stackId="a" fill={CATEGORY_COLORS.PERSONAL} />
-              <Bar dataKey="GROUP" stackId="a" fill={CATEGORY_COLORS.GROUP} />
-              <Bar dataKey="ANCILLARY" stackId="a" fill={CATEGORY_COLORS.ANCILLARY} />
-              <Bar dataKey="REFUND" stackId="a" fill={CATEGORY_COLORS.REFUND} radius={[4, 4, 0, 0]} />
+              {CATEGORIES.map((c, idx) => (
+                <Bar key={c} dataKey={c} stackId="a" fill={CATEGORY_COLORS[c]} radius={idx === CATEGORIES.length - 1 ? [4, 4, 0, 0] : undefined} />
+              ))}
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -130,15 +127,15 @@ export function RevenuePage() {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Card>
-          {/* Возвраты — отрицательная сумма, в круговой диаграмме долей источников не участвуют (показаны отдельно плиткой сверху и в динамике по дням/месяцам) */}
+          {/* Возвраты — отрицательная сумма, в круговой диаграмме долей источников не участвуют (показаны отдельно плиткой сверху и в динамике) */}
           <SectionTitle title="По источникам" />
           <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={categoryTotals.filter((c) => c.category !== 'REFUND' && c.value > 0)} dataKey="value" nameKey="category" innerRadius={50} outerRadius={80} paddingAngle={2}>
-                  {categoryTotals.filter((c) => c.category !== 'REFUND' && c.value > 0).map((c) => <Cell key={c.category} fill={CATEGORY_COLORS[c.category]} />)}
+                <Pie data={categoryTiles.filter((c) => c.category !== 'REFUND' && c.value > 0)} dataKey="value" nameKey="category" innerRadius={50} outerRadius={80} paddingAngle={2}>
+                  {categoryTiles.filter((c) => c.category !== 'REFUND' && c.value > 0).map((c) => <Cell key={c.category} fill={CATEGORY_COLORS[c.category]} />)}
                 </Pie>
-                <Tooltip formatter={(v: any, n: any) => [fmt(v), CATEGORY_LABELS[n as TransactionCategory] ?? n]} />
+                <Tooltip formatter={(v: any, n: any) => [fmt(v as number), CATEGORY_LABELS[n as TransactionCategory] ?? n]} />
                 <Legend formatter={(v: string) => CATEGORY_LABELS[v as TransactionCategory] ?? v} wrapperStyle={{ fontSize: 12 }} />
               </PieChart>
             </ResponsiveContainer>
@@ -146,14 +143,14 @@ export function RevenuePage() {
         </Card>
 
         <Card>
-          <SectionTitle title="Топ тренеров по выручке" />
+          <SectionTitle title="Топ тренеров по выручке" subtitle="Считается сервером по всей истории" />
           <div className="flex flex-col gap-2.5">
             {topTrainers.map((t, idx) => {
               const max = topTrainers[0]?.revenue || 1
               return (
                 <div key={t.trainerId} className="flex items-center gap-3">
                   <span className="w-4 text-xs font-semibold text-[var(--text-faint)]">{idx + 1}</span>
-                  {t.avatarHue !== undefined && <Avatar initials={getInitials(t.name)} hue={t.avatarHue} size={30} />}
+                  <Avatar initials={getInitials(t.name)} hue={t.avatarHue} size={30} />
                   <div className="flex-1">
                     <div className="flex items-center justify-between text-sm">
                       <span className="font-medium">{t.name}</span>
@@ -166,16 +163,50 @@ export function RevenuePage() {
                 </div>
               )
             })}
+            {topTrainers.length === 0 && <EmptyState title="Платежей с тренерами пока нет" />}
           </div>
         </Card>
       </div>
 
-      {gymScope.length === 0 && byGym.length > 1 && (
+      <Card>
+        <SectionTitle
+          title="Реестр транзакций"
+          subtitle={feed.data ? `Страница ${feed.data.page} из ${totalPages} · всего ${feed.data.total}` : 'Загрузка…'}
+        />
+        <div className="flex max-h-96 flex-col gap-2 overflow-y-auto">
+          {(feed.data?.items ?? []).map((t) => (
+            <div key={t.id} className="flex items-center justify-between rounded-lg bg-[var(--surface-sunken)] px-3 py-2 text-sm">
+              <div>
+                <div className="font-medium">{t.client?.name ?? '—'}</div>
+                <div className="text-xs text-[var(--text-faint)]">{t.description} · {t.date.slice(0, 10)}{t.gym?.name ? ` · ${t.gym.name}` : ''}</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="rounded-full bg-[var(--surface-raised)] px-2 py-0.5 text-xs text-[var(--text-muted)]">{CATEGORY_LABELS[t.category] ?? t.category}</span>
+                <span className={`font-semibold ${t.amount < 0 ? 'text-red-600' : ''}`}>{fmt(t.amount)}</span>
+              </div>
+            </div>
+          ))}
+          {feed.data && feed.data.items.length === 0 && <EmptyState title="Транзакций пока нет" />}
+        </div>
+        {feed.data && feed.data.total > REGISTRY_PAGE_SIZE && (
+          <div className="mt-3 flex items-center justify-center gap-3">
+            <Button size="sm" variant="secondary" disabled={page <= 1 || feed.isFetching} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+              <ChevronLeft size={14} /> Назад
+            </Button>
+            <span className="text-sm text-[var(--text-faint)]">{page} / {totalPages}</span>
+            <Button size="sm" variant="secondary" disabled={page >= totalPages || feed.isFetching} onClick={() => setPage((p) => p + 1)}>
+              Вперёд <ChevronRight size={14} />
+            </Button>
+          </div>
+        )}
+      </Card>
+
+      {gymScope.length === 0 && summary.byGym.length > 1 && (
         <Card>
           <SectionTitle title="Выручка по точкам" subtitle="Вся сеть одной сводкой, без переключения точки" />
           <div className="flex flex-col gap-2.5">
-            {byGym.map((g) => {
-              const max = byGym[0]?.total || 1
+            {summary.byGym.map((g) => {
+              const max = summary.byGym[0]?.total || 1
               return (
                 <div key={g.gymId} className="flex items-center gap-3">
                   <div className="min-w-[120px] flex-1">

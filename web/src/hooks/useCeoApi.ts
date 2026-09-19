@@ -1,6 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
-import type { DirectorMessage, EmploymentType, Gym, GroupClassSeries, MembershipPricing, OfferAudience, Trainer, TransactionCategory, WorkoutLogEntry } from '../types'
+import type { DirectorMessage, EmploymentType, Gym, GroupClassSeries, MembershipPricing, OfferAudience, RevenueSummary, Trainer, TransactionsFeed, TransactionCategory, WorkoutLogEntry } from '../types'
 
 // Точки сети, на которых работает тренер (P1.3) — домашняя (создана там)
 // плюс дополнительные, назначенные CEO.
@@ -93,17 +93,37 @@ export interface Transaction {
   gymId: string
   gym?: { id: string; name: string } | null
   clientId: string
-  client?: { name: string }
+  client?: { name: string } | null
   trainerId: string | null
   trainer?: { name: string; avatarHue: number } | null
   description: string
 }
 
-// С P1.7 фид отдаёт выручку всей сети (эндпоинт CEO-only): точка приложена
-// к каждой строке, по ней строятся фильтр «вся сеть / точка» и разбивка
-// «выручка по точкам».
-export function useTransactions() {
-  return useQuery({ queryKey: ['transactions'], queryFn: () => api.get<Transaction[]>('/transactions') })
+// С P1.7 фид отдаёт выручку всей сети (эндпоинт CEO-only). P3.19: реестр
+// пагинирован (page/pageSize, фильтры trainerId/gymId) — аналитика по
+// полной истории живёт в useTransactionSummary, не в загруженной странице.
+export function useTransactions(page = 1, pageSize = 50, filters: { trainerId?: string; gymIds?: string[] } = {}) {
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
+  if (filters.trainerId) params.set('trainerId', filters.trainerId)
+  for (const g of filters.gymIds ?? []) params.append('gymId', g)
+  return useQuery({
+    queryKey: ['transactions', page, pageSize, filters.trainerId ?? null, filters.gymIds ?? []],
+    queryFn: () => api.get<TransactionsFeed>(`/transactions?${params.toString()}`),
+    placeholderData: keepPreviousData,
+  })
+}
+
+// Серверные агрегаты выручки (P3.19): total/категории/динамика/точки/тренеры
+// считаются SQL по ВСЕМ строкам сети (или выбранных точек), объём ответа
+// не растёт с историей клуба. gymIds пуст → вся сеть.
+export function useTransactionSummary(gymIds: string[] = []) {
+  const params = new URLSearchParams()
+  for (const g of gymIds) params.append('gymId', g)
+  const qs = params.toString()
+  return useQuery({
+    queryKey: ['transactions', 'summary', gymIds],
+    queryFn: () => api.get<RevenueSummary>(`/transactions/summary${qs ? `?${qs}` : ''}`),
+  })
 }
 
 export function useAllWorkoutLogs() {

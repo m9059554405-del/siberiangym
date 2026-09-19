@@ -439,6 +439,37 @@ export interface MembershipPricing {
   groupMonthly: number
 }
 
+// P3.19: реестр транзакций пагинирован — аналитика считается на сервере
+// (RevenueSummary), а не по загруженной странице.
+export interface TransactionRow {
+  id: string
+  date: string
+  amount: number
+  category: TransactionCategory
+  gymId: string
+  gym?: { id: string; name: string } | null
+  clientId: string
+  client?: { name: string } | null
+  trainerId: string | null
+  trainer?: { name: string } | null
+  description: string
+}
+export interface TransactionsFeed {
+  items: TransactionRow[]
+  total: number
+  page: number
+  pageSize: number
+}
+export type RevenuePoint = { key: string } & Record<TransactionCategory, number>
+export interface RevenueSummary {
+  total: number
+  byCategory: Record<TransactionCategory, number>
+  byDay: RevenuePoint[]
+  byMonth: RevenuePoint[]
+  byGym: { gymId: string; name: string; total: number }[]
+  byTrainer: { trainerId: string; name: string; avatarHue: number; revenue: number; payments: number }[]
+}
+
 export interface ClubPostMedia {
   id: string
   kind: 'photo' | 'video'

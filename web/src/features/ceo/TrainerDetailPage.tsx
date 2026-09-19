@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, Building2, Plus, ShieldCheck, X } from 'lucide-react'
+import { ArrowLeft, Building2, ChevronLeft, ChevronRight, Plus, ShieldCheck, X } from 'lucide-react'
 import { useTrainers } from '../../hooks/useClientApi'
 import { useCreateTrainerCredential, useDeleteTrainerCredential, useUpdateTrainerCredential } from '../../hooks/useCeoApi'
 import { useAllClients } from '../../hooks/useStaffApi'
-import { useAllWorkoutLogs, useAssignTrainerGym, useBulkTrainerClients, useBulkTrainerSlots, useSetTrainerAvailability, useTransactions, useTrainerGyms, useUnassignTrainerGym } from '../../hooks/useCeoApi'
+import { useAllWorkoutLogs, useAssignTrainerGym, useBulkTrainerClients, useBulkTrainerSlots, useSetTrainerAvailability, useTransactionSummary, useTransactions, useTrainerGyms, useUnassignTrainerGym } from '../../hooks/useCeoApi'
 import { useNetworkGyms } from '../../hooks/useGymsApi'
 import { useGrantTrainerConsent, useTrainerConsent } from '../../hooks/useConsentsApi'
 import { tariffById } from '../../data/tariffs'
@@ -170,13 +170,20 @@ export function TrainerDetailPage() {
   const { trainerId } = useParams()
   const { data: trainers } = useTrainers()
   const { data: clients } = useAllClients()
-  const { data: transactions } = useTransactions()
+  // P3.19: выручка/число платежей тренера — серверный агрегат по всей
+  // истории; список платежей — пагинированный реестр с фильтром trainerId.
+  const { data: revenueSummary } = useTransactionSummary()
+  const [paymentsPage, setPaymentsPage] = useState(1)
+  const paymentsFeed = useTransactions(paymentsPage, 20, { trainerId })
   const { data: logs } = useAllWorkoutLogs()
 
   const trainer = (trainers ?? []).find((t) => t.id === trainerId)
   const own = useMemo(() => (clients ?? []).filter((c) => c.trainerId === trainerId), [clients, trainerId])
-  const payments = useMemo(() => (transactions ?? []).filter((t) => t.trainerId === trainerId).sort((a, b) => b.date.localeCompare(a.date)), [transactions, trainerId])
-  const totalRevenue = payments.reduce((sum, t) => sum + t.amount, 0)
+  const trainerRevenueRow = revenueSummary?.byTrainer.find((t) => t.trainerId === trainerId)
+  const payments = paymentsFeed.data?.items ?? []
+  const totalRevenue = trainerRevenueRow?.revenue ?? 0
+  const paymentsTotal = trainerRevenueRow?.payments ?? paymentsFeed.data?.total ?? 0
+  const paymentsTotalPages = paymentsFeed.data ? Math.max(1, Math.ceil(paymentsFeed.data.total / 20)) : 1
 
   function completionRate(clientId: string): number | null {
     const clientLogs = (logs ?? []).filter((l) => l.clientId === clientId).slice(-12)
@@ -205,7 +212,7 @@ export function TrainerDetailPage() {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <StatTile label="Подопечных" value={own.length} />
         <StatTile label="Выручка от тренера" value={`${formatMoney(totalRevenue)} ₽`} />
-        <StatTile label="Платежей" value={payments.length} />
+        <StatTile label="Платежей" value={paymentsTotal} />
         {trainer.revenueSharePercent != null && (
           <StatTile
             label="Причитается тренеру"
@@ -247,7 +254,11 @@ export function TrainerDetailPage() {
       </Card>
 
       <Card>
-        <SectionTitle title="Платежи, связанные с тренером" subtitle="Персональные тренировки, тарифы, групповые занятия" />
+        <SectionTitle
+          title="Платежи, связанные с тренером"
+          subtitle="Персональные тренировки, тарифы, групповые занятия"
+          action={paymentsFeed.data && paymentsFeed.data.total > 20 ? <span className="text-xs text-[var(--text-faint)]">{paymentsPage} / {paymentsTotalPages}</span> : undefined}
+        />
         <div className="flex max-h-96 flex-col gap-2 overflow-y-auto">
           {payments.map((t) => (
             <div key={t.id} className="flex items-center justify-between rounded-lg bg-[var(--surface-sunken)] px-3 py-2 text-sm">
@@ -260,6 +271,16 @@ export function TrainerDetailPage() {
           ))}
           {payments.length === 0 && <EmptyState title="Платежей пока нет" />}
         </div>
+        {paymentsFeed.data && paymentsFeed.data.total > 20 && (
+          <div className="mt-3 flex items-center justify-center gap-3">
+            <Button size="sm" variant="secondary" disabled={paymentsPage <= 1 || paymentsFeed.isFetching} onClick={() => setPaymentsPage((p) => Math.max(1, p - 1))}>
+              <ChevronLeft size={14} /> Назад
+            </Button>
+            <Button size="sm" variant="secondary" disabled={paymentsPage >= paymentsTotalPages || paymentsFeed.isFetching} onClick={() => setPaymentsPage((p) => p + 1)}>
+              Вперёд <ChevronRight size={14} />
+            </Button>
+          </div>
+        )}
       </Card>
     </div>
   )

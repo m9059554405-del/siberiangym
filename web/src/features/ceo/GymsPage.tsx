@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { ArrowLeftRight, Building2, Pencil, Plus, Power, Trash2 } from 'lucide-react'
 import { useTrainers } from '../../hooks/useClientApi'
 import { useAllClients } from '../../hooks/useStaffApi'
-import { useAssignTrainerGym, useTransactions, useUnassignTrainerGym } from '../../hooks/useCeoApi'
+import { useAssignTrainerGym, useTransactionSummary, useUnassignTrainerGym } from '../../hooks/useCeoApi'
 import { useCreateGym, useDeleteGym, useMoveStaff, useNetworkGyms, useNetworkStaff, useSetStaffActive, useUpdateGym } from '../../hooks/useGymsApi'
 import { useAuthStore } from '../../store/useAuthStore'
 import { AddStaffModal } from './AddStaffModal'
@@ -215,7 +215,8 @@ export function GymsPage() {
   const { data: staff } = useNetworkStaff()
   const { data: clients } = useAllClients(true)
   const { data: trainers } = useTrainers()
-  const { data: transactions } = useTransactions()
+  // P3.19: выручка по точкам — серверный агрегат, без выгрузки реестра
+  const { data: revenueSummary } = useTransactionSummary()
   const moveStaff = useMoveStaff()
   const setStaffActive = useSetStaffActive()
   const currentGymId = useAuthStore((s) => s.user?.gymId)
@@ -250,12 +251,13 @@ export function GymsPage() {
       const r = row(s.gymId)
       byGym.set(s.gymId, { ...r, staff: r.staff + 1 })
     }
-    for (const t of transactions ?? []) {
-      const r = row(t.gymId)
-      byGym.set(t.gymId, { ...r, revenue: r.revenue + t.amount })
+    for (const g of revenueSummary?.byGym ?? []) {
+      if (!byGym.has(g.gymId)) continue
+      const r = row(g.gymId)
+      byGym.set(g.gymId, { ...r, revenue: g.total })
     }
     return byGym
-  }, [gyms, clients, trainers, staff, transactions])
+  }, [gyms, clients, trainers, staff, revenueSummary])
 
   async function switchTo(gymId: string) {
     if (gymId === currentGymId || switching) return
@@ -272,7 +274,7 @@ export function GymsPage() {
     }
   }
 
-  if (!gyms || !staff || !clients || !trainers || !transactions) return null
+  if (!gyms || !staff || !clients || !trainers) return null
 
   return (
     <div className="flex flex-col gap-5">

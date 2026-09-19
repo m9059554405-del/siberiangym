@@ -9,6 +9,9 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { JwtPayload } from '../auth/auth.service';
 
 // Финансовые транзакции — видит только CEO (выручка, отчёты по тренерам).
+// P3.19: '/' — пагинированный реестр (page/pageSize, фильтры trainerId и
+// gymId — можно несколько), '/summary' — серверные агрегаты для отчётов
+// (фильтр gymId, окно days для динамики по дням), '/export' — CSV (P4.3).
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.CEO)
 @Controller('transactions')
@@ -16,13 +19,26 @@ export class TransactionsController {
   constructor(private readonly transactions: TransactionsService) {}
 
   @Get()
-  findAll(@CurrentUser() user: JwtPayload) {
-    return this.transactions.findAll(user);
+  findAll(
+    @Query('page') page: string | undefined,
+    @Query('pageSize') pageSize: string | undefined,
+    @Query('trainerId') trainerId: string | undefined,
+    @Query('gymId') gymId: string | string[] | undefined,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.transactions.findAll(user, { page, pageSize, trainerId, gymId: gymId === undefined ? undefined : Array.isArray(gymId) ? gymId : [gymId] });
+  }
+
+  @Get('summary')
+  summary(
+    @Query('gymId') gymId: string | string[] | undefined,
+    @Query('days') days: string | undefined,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.transactions.summary(user, { gymId: gymId === undefined ? undefined : Array.isArray(gymId) ? gymId : [gymId], days });
   }
 
   // P4.3: CSV для бухгалтерии (вся сеть, период ?from=YYYY-MM-DD&to=YYYY-MM-DD).
-  // Литеральный маршрут объявлен выше параметрических — но их здесь нет;
-  // главное — он не должен конфликтовать с GET /:id, если появится.
   @Get('export')
   async exportCsv(
     @Query('from') from: string | undefined,

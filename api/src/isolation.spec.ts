@@ -49,11 +49,16 @@ describe('Мультиарендная изоляция (P4.1)', () => {
   });
 
   it('выручка CEO отдаётся только по точкам его сети', async () => {
-    const prisma: any = { transaction: { findMany: jest.fn().mockResolvedValue([]) } };
+    const prisma: any = {
+      transaction: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      $transaction: jest.fn().mockResolvedValue([[], 0]),
+    };
     const gyms: any = { resolveNetworkGymIds: jest.fn().mockResolvedValue([GYM_A]) };
     const service = new TransactionsService(prisma, gyms);
 
-    await service.findAll(ceoA);
+    const feed = await service.findAll(ceoA, {});
+
+    expect(feed).toMatchObject({ items: [], total: 0, page: 1 });
 
     expect(gyms.resolveNetworkGymIds).toHaveBeenCalledWith(ceoA);
     expect(prisma.transaction.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { gymId: { in: [GYM_A] } } }));
