@@ -20,7 +20,20 @@ export class HealthService {
     const startedAt = Date.now();
     try {
       await this.prisma.$queryRaw`SELECT 1`;
-      return { status: 'ok', database: 'ok', latencyMs: Date.now() - startedAt, timestamp: new Date().toISOString() };
+      // P3.17/P3.20: память и аптайм процесса в каждом ответе health, чтобы
+      // monitor (P3.7) и soak-тест могли строить график RSS в динамике —
+      // рост без возврата между GC и есть симптом утечки. Метрики процесса
+      // несекретны, поэтому остаются в публичном ответе.
+      const mem = process.memoryUsage();
+      const mb = (v: number) => Math.round(v / 1048576);
+      return {
+        status: 'ok',
+        database: 'ok',
+        latencyMs: Date.now() - startedAt,
+        memoryMb: { rss: mb(mem.rss), heapUsed: mb(mem.heapUsed), heapTotal: mb(mem.heapTotal), external: mb(mem.external) },
+        uptimeSec: Math.floor(process.uptime()),
+        timestamp: new Date().toISOString(),
+      };
     } catch {
       throw new ServiceUnavailableException('База данных недоступна');
     }
