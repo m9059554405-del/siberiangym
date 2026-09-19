@@ -1,4 +1,4 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication, NotFoundException, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
@@ -19,6 +19,7 @@ describe('Auth + orders HTTP (e2e smoke)', () => {
   const orders = {
     createOrder: jest.fn().mockResolvedValue({ id: 'order1', status: 'DRAFT', totalAmount: 700 }),
     confirmReceipt: jest.fn().mockResolvedValue({ id: 'order1', status: 'PAID' }),
+    findOne: jest.fn(),
   };
 
   beforeAll(async () => {
@@ -88,5 +89,14 @@ describe('Auth + orders HTTP (e2e smoke)', () => {
       .expect(201);
 
     expect(orders.confirmReceipt).toHaveBeenCalledWith(actor, 'order1', 't=20260914T1530&s=700.00&fn=fn1&i=1&fp=2');
+  });
+
+  // P4.1: заказ чужой точки/сети — 404, не 200: scoping по gymId из токена
+  // выполняется в сервисе до любого чтения строк.
+  it('GET /api/orders/:id чужого зала — 404 вместо утечки существования', async () => {
+    orders.findOne = jest.fn().mockRejectedValue(new NotFoundException('Заказ не найден'));
+    await request(app.getHttpServer())
+      .get('/api/orders/foreign-order')
+      .expect(404);
   });
 });
