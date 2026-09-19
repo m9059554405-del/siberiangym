@@ -12,7 +12,7 @@ import { TrainersService } from '../trainers/trainers.service';
 import { GymsService } from '../gyms/gyms.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { startOfDay } from '../clients/membership.const';
-import { LATE_CANCEL_WINDOW_HOURS, SERIES_TOPUP_INTERVAL_MS, hoursBefore, startsAt } from './schedule.const';
+import { SERIES_TOPUP_INTERVAL_MS, hoursBefore, lateCancelWindowHours, startsAt } from './schedule.const';
 import { dayUtc, seriesWindowDates, weekdayIndex } from './series-dates.util';
 import { overlaps, type TimeRange } from './time-overlap.util';
 
@@ -397,7 +397,7 @@ export class ScheduleService implements OnModuleInit, OnModuleDestroy {
     // равно освободится физически и его подберёт лист ожидания (P2.3) —
     // но отмечаем в журнале, поздно ли отменил клиент (для разбора
     // спорных возвратов).
-    const late = !!gc && hoursBefore(startsAt(gc.date, gc.start)) < LATE_CANCEL_WINDOW_HOURS.GROUP;
+    const late = !!gc && hoursBefore(startsAt(gc.date, gc.start)) < lateCancelWindowHours('GROUP');
     const deleted = await this.prisma.groupClassBooking.deleteMany({ where: { groupClassId: classId, clientId } });
     if (deleted.count > 0) {
       // Место освободилось — первый в листе ожидания получает уведомление
@@ -405,7 +405,7 @@ export class ScheduleService implements OnModuleInit, OnModuleDestroy {
       // должно отправиться, если сама отмена по какой-то причине откатится.
       await this.promoteWaitlist(classId);
     }
-    await this.activityLog.log(actor, 'Отменил запись на групповое занятие', clientId, `${classId}${late ? ` (поздняя отмена, менее ${LATE_CANCEL_WINDOW_HOURS.GROUP} ч до начала)` : ''}`);
+    await this.activityLog.log(actor, 'Отменил запись на групповое занятие', clientId, `${classId}${late ? ` (поздняя отмена, менее ${lateCancelWindowHours('GROUP')} ч до начала)` : ''}`);
     return { ok: true };
   }
 
@@ -518,9 +518,9 @@ export class ScheduleService implements OnModuleInit, OnModuleDestroy {
       // за считанные часы — это потерянное время тренера, которое уже не
       // продать. Клиенту — только через администратора (форс-мажор решает
       // персонал), персонал отменяет без ограничений.
-      if (slot.status === 'BOOKED' && hoursBefore(startsAt(slot.date, slot.start)) < LATE_CANCEL_WINDOW_HOURS.PERSONAL) {
+      if (slot.status === 'BOOKED' && hoursBefore(startsAt(slot.date, slot.start)) < lateCancelWindowHours('PERSONAL')) {
         throw new BadRequestException(
-          `До тренировки меньше ${LATE_CANCEL_WINDOW_HOURS.PERSONAL} ч — поздняя отмена недоступна в приложении, свяжитесь с администратором клуба`,
+          `До тренировки меньше ${lateCancelWindowHours('PERSONAL')} ч — поздняя отмена недоступна в приложении, свяжитесь с администратором клуба`,
         );
       }
     }

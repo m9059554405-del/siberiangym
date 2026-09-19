@@ -1,13 +1,17 @@
 // Политика отмены и no-show (P2.5). Окно «поздней отмены» — сколько часов
 // до начала ещё можно отказаться самостоятельно; значения — продуктовое
-// решение клуба, зафиксированное здесь. Персональная тренировка платная и
-// её поздняя отмена — прямая потеря времени тренера (бэклог P2.5),
-// поэтому окно большое; групповое занятие отпускаем почти до начала —
-// освободившееся место подбирает лист ожидания (P2.3).
-export const LATE_CANCEL_WINDOW_HOURS: Record<'PERSONAL' | 'GROUP', number> = {
-  PERSONAL: 12,
-  GROUP: 2,
-};
+// решение клуба. P2.5 (хвост): окна вынесены в настройки окружения
+// (LATE_CANCEL_WINDOW_PERSONAL_HOURS / LATE_CANCEL_WINDOW_GROUP_HOURS),
+// дефолты — прежние продуктые решения: персональная тренировка платная и
+// её поздняя отмена — прямая потеря времени тренера, поэтому окно
+// большое; групповое занятие отпускаем почти до начала — освободившееся
+// место подбирает лист ожидания (P2.3).
+export function lateCancelWindowHours(kind: 'PERSONAL' | 'GROUP', env: NodeJS.ProcessEnv = process.env): number {
+  const fallback = kind === 'PERSONAL' ? 12 : 2;
+  const raw = kind === 'PERSONAL' ? env.LATE_CANCEL_WINDOW_PERSONAL_HOURS : env.LATE_CANCEL_WINDOW_GROUP_HOURS;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
 
 // Расписание хранит дату (UTC-полночь календарного дня) и время строкой
 // "HH:MM" локального расписания — собираем из пары настоящий Date.
