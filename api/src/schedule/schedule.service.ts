@@ -15,6 +15,7 @@ import { startOfDay } from '../clients/membership.const';
 import { SERIES_TOPUP_INTERVAL_MS, hoursBefore, lateCancelWindowHours, startsAt } from './schedule.const';
 import { dayUtc, seriesWindowDates, weekdayIndex } from './series-dates.util';
 import { overlaps, type TimeRange } from './time-overlap.util';
+import { isDispatcherInstance } from '../common/dispatcher';
 
 // Резолвит clientId для self-service действий: клиент может действовать
 // только от своего имени, CEO/STAFF должны явно передать clientId.
@@ -380,6 +381,8 @@ export class ScheduleService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit() {
+    // P3.18: догенерация серий в PM2-кластере — только воркер 0.
+    if (!isDispatcherInstance()) return;
     this.topUpAllSeries().catch((err) => this.logger.error(`Стартовая догенерация серий упала: ${(err as Error).message}`));
     this.topUpTimer = setInterval(() => {
       this.topUpAllSeries().catch((err) => this.logger.error(`Тик догенерации серий упал: ${(err as Error).message}`));

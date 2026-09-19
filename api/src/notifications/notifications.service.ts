@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { SmsService } from '../sms/sms.service';
 import { dayUtc } from '../schedule/series-dates.util';
+import { isDispatcherInstance } from '../common/dispatcher';
 import type { JwtPayload } from '../auth/auth.service';
 
 // Как часто диспетчер напоминалок смотрит на расписание (P2.4). Окно
@@ -200,6 +201,9 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit() {
+    // P3.18: в PM2-кластере диспетчером работает только воркер 0 — тик не
+    // должен выполняться в каждой копии процесса параллельно.
+    if (!isDispatcherInstance()) return;
     this.timer = setInterval(() => {
       this.runReminderTick().catch((err) => this.logger.error(`Тик диспетчера напоминаний упал: ${(err as Error).message}`));
     }, DISPATCH_INTERVAL_MS);

@@ -12,6 +12,7 @@ import { TARIFF_NAME, TARIFF_PRICE } from '../clients/tariffs.const';
 import { isMinor as computeIsMinor } from '../clients/age.util';
 import { amountsMatchToKopeck, parseFiscalReceiptQr } from './receipt-qr.util';
 import { overlaps, type TimeRange } from '../schedule/time-overlap.util';
+import { isDispatcherInstance } from '../common/dispatcher';
 import type { JwtPayload } from '../auth/auth.service';
 
 const AWAITING_PAYMENT_TIMEOUT_MINUTES = Number(process.env.ORDER_AWAITING_PAYMENT_TIMEOUT_MINUTES ?? 120);
@@ -58,6 +59,8 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
   // инстанса API, при переходе на кластер (P3.18) стоит заменить на
   // распределённый планировщик, чтобы не гонять просрочку в N копиях сразу.
   onModuleInit() {
+    // P3.18: просрочкой заказов в PM2-кластере занимается только воркер 0.
+    if (!isDispatcherInstance()) return;
     this.sweepTimer = setInterval(() => {
       this.expireStale().catch((err) => this.logger.error('Не удалось выполнить просрочку заказов', err));
     }, SWEEP_INTERVAL_MS);

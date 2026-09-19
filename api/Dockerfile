@@ -48,4 +48,7 @@ EXPOSE 3000
 # первого разворачивания, и для последующих обновлений (prisma migrate
 # deploy не трогает уже применённые миграции). Сид — отдельной командой
 # после первого поднятия: docker compose exec api node dist/prisma-seed/seed.js
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
+# P3.18: API стартует через pm2-runtime в кластерном режиме (ecosystem.config.js)
+# — N воркеров на всех ядрах вместо одного event loop; фоновые задачи
+# выполняет только воркер 0 (common/dispatcher.ts).
+CMD ["sh", "-c", "npx prisma migrate deploy && npx pm2-runtime start ecosystem.config.js"]

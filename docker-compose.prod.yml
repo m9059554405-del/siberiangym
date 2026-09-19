@@ -72,13 +72,11 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      # P3.14: connection_limit задан явно (а не дефолт Prisma «физические
-      # ядра машины × 2 + 1»): один процесс API (до P3.18), 12 соединений с
-      # запасом под пиковую нагрузку одного инстанса, при этом суммарно с
-      # Postgres-супервизором и мониторингом далеко от потолка в 100
-      # соединений. При переходе на PM2-кластер (P3.18) снизить до
-      # ~15/N инстансов.
-      DATABASE_URL: postgresql://siberiangym:${POSTGRES_PASSWORD}@postgres:5432/siberiangym?connection_limit=${DATABASE_CONNECTION_LIMIT:-12}
+      # P3.14/P3.18: connection_limit задан явно и согласован с PM2-кластером:
+      # суммарный пул = PM2_INSTANCES × DATABASE_CONNECTION_LIMIT. Дефолт
+      # 2 воркера × 6 соединений = 12 на контейнер — прежний бюджет одного
+      # процесса; при росте PM2_INSTANCES пересчитывайте лимит вниз.
+      DATABASE_URL: postgresql://siberiangym:${POSTGRES_PASSWORD}@postgres:5432/siberiangym?connection_limit=${DATABASE_CONNECTION_LIMIT:-6}
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN_SECONDS: 604800
       API_RATE_LIMIT: ${API_RATE_LIMIT:-120}
@@ -104,6 +102,9 @@ services:
       # P3.11: часовой пояс клуба — «сегодня» в сроках абонементов,
       # заморозках и расписании считается по нему, а не по UTC сервера.
       CLUB_TIMEZONE: ${CLUB_TIMEZONE:-Asia/Novosibirsk}
+      # P3.18: число воркеров PM2-кластера (суммарный пул соединений —
+      # PM2_INSTANCES × DATABASE_CONNECTION_LIMIT).
+      PM2_INSTANCES: ${PM2_INSTANCES:-2}
       # Объектное хранилище для фото (P0.5) — целевая конфигурация сервера
       # предполагает ОТДЕЛЬНОЕ S3-совместимое хранилище (например Selectel
       # S3), не MinIO на этом же VPS — поэтому здесь только переменные
