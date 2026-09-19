@@ -45,13 +45,14 @@ import { PaymentsModule } from './payments/payments.module';
       useFactory: (config: ConfigService) => ({
         throttlers: [{
           name: 'default',
-          limit: config.get<number>('API_RATE_LIMIT', 120),
-          ttl: config.get<number>('API_RATE_WINDOW_MS', 60_000) / 1000,
+          limit: Number(config.get('API_RATE_LIMIT', 120)),
+          ttl: Number(config.get('API_RATE_WINDOW_MS', 60_000)),
         }, {
           name: 'login',
-          limit: config.get<number>('LOGIN_RATE_LIMIT', 5),
-          ttl: config.get<number>('LOGIN_RATE_WINDOW_MS', 60_000) / 1000,
-          blockDuration: config.get<number>('LOGIN_BLOCK_DURATION_MS', 300_000) / 1000,
+          limit: Number(config.get('LOGIN_RATE_LIMIT', 5)),
+          ttl: Number(config.get('LOGIN_RATE_WINDOW_MS', 60_000)),
+          blockDuration: Number(config.get('LOGIN_BLOCK_DURATION_MS', 300_000)),
+          skipIf: (context) => context.getClass().name !== 'AuthController' || context.getHandler().name !== 'login',
         }],
         errorMessage: 'Слишком много запросов. Повторите попытку позже.',
       }),

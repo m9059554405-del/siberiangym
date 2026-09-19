@@ -22,25 +22,24 @@ export class AuthController {
     private readonly gyms: GymsService,
   ) {}
 
-  @Throttle({ login: { limit: 5, ttl: 60, blockDuration: 300 } })
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.auth.login(dto.email, dto.password);
   }
 
-  @Throttle({ default: { limit: 3, ttl: 900, blockDuration: 900 } })
+  @Throttle({ default: { limit: 3, ttl: 900_000, blockDuration: 900_000 } })
   @Post('request-password-reset')
   requestPasswordReset(@Body() dto: RequestPasswordResetDto) {
     return this.auth.requestPasswordReset(dto.email);
   }
 
-  @Throttle({ default: { limit: 5, ttl: 900, blockDuration: 900 } })
+  @Throttle({ default: { limit: 5, ttl: 900_000, blockDuration: 900_000 } })
   @Post('reset-password')
   resetPassword(@Body() dto: ResetPasswordDto) {
     return this.auth.resetPassword(dto.token, dto.password);
   }
 
-  @Throttle({ default: { limit: 10, ttl: 60, blockDuration: 60 } })
+  @Throttle({ default: { limit: 10, ttl: 60_000, blockDuration: 60_000 } })
   @Post('2fa/login')
   verifyTwoFactorLogin(@Body() dto: VerifyTwoFactorDto) {
     return this.auth.verifyTwoFactorLogin(dto.challengeToken, dto.code);

@@ -16,6 +16,7 @@ describe('HealthService.healthcheck', () => {
       expect(result.memoryMb[key]).toBeGreaterThan(0);
     }
     expect(result.memoryMb.heapUsed).toBeLessThanOrEqual(result.memoryMb.rss);
+    expect(result.worker).toBeDefined();
     expect(new Date(result.timestamp).toString()).not.toBe('Invalid Date');
   });
 

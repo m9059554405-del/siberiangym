@@ -6,5 +6,6 @@ build/
 .env.local
 .env.prod
 *.log
+load-reports/
 .DS_Store
 Thumbs.db

@@ -32,6 +32,9 @@ export class HealthService {
         latencyMs: Date.now() - startedAt,
         memoryMb: { rss: mb(mem.rss), heapUsed: mb(mem.heapUsed), heapTotal: mb(mem.heapTotal), external: mb(mem.external) },
         uptimeSec: Math.floor(process.uptime()),
+        // P3.20: какой воркер PM2 ответил — проверка, что кластер (P3.18)
+        // действительно распределяет нагрузку, а не бьёт в один инстанс.
+        worker: process.env.NODE_APP_INSTANCE ?? 'solo',
         timestamp: new Date().toISOString(),
       };
     } catch {
