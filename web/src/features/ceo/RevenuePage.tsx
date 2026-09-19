@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Download } from 'lucide-react'
 import { useTransactions } from '../../hooks/useCeoApi'
+import { useAuthStore } from '../../store/useAuthStore'
 import { NetworkGymFilter, defaultGymScope, inGymScope } from './NetworkGymFilter'
 import { getRevenueByDay, getRevenueByGym, getRevenueByMonth, getTopTrainersByRevenue, getTotalRevenue } from '../../lib/ceoSelectors'
 import { Avatar } from '../../components/ui/Avatar'
-import { Card, SectionTitle, StatTile, Tabs } from '../../components/ui/Primitives'
+import { Button, Card, SectionTitle, StatTile, Tabs } from '../../components/ui/Primitives'
 import { getInitials } from '../../lib/format'
 import type { TransactionCategory } from '../../types'
 
@@ -23,6 +25,32 @@ export function RevenuePage() {
   const { data: transactions } = useTransactions()
   const [granularity, setGranularity] = useState<'day' | 'month'>('day')
   const [gymScope, setGymScope] = useState<string[]>(defaultGymScope)
+  // P4.3: выгрузка для бухгалтерии — CSV по всей сети за выбранный период
+  // (дефолт — текущий месяц). Скачивание идёт с Bearer-токеном через fetch,
+  // поэтому обычный <a href> не подходит.
+  const [from, setFrom] = useState(() => new Date().toISOString().slice(0, 8) + '01')
+  const [to, setTo] = useState(() => new Date().toISOString().slice(0, 10))
+  const [downloading, setDownloading] = useState(false)
+  const token = useAuthStore((s) => s.token)
+
+  async function downloadCsv() {
+    setDownloading(true)
+    try {
+      const res = await fetch(`/api/transactions/export?from=${from}&to=${to}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `siberiangym-transactions-${from}_${to}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   // Фид уже отдаёт всю сеть (P1.7) — фильтр по точкам считается на клиенте,
   // без перезагрузки данных. Дефолт — активная точка из переключателя
@@ -54,6 +82,21 @@ export function RevenuePage() {
         </div>
         <NetworkGymFilter value={gymScope} onChange={setGymScope} />
       </div>
+
+      <Card className="flex flex-wrap items-end gap-3">
+        <div className="text-sm text-[var(--text-muted)]">Выгрузка для бухгалтерии (CSV, вся сеть)</div>
+        <label className="flex flex-col gap-1 text-xs text-[var(--text-faint)]">
+          С
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm" />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-[var(--text-faint)]">
+          По
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm" />
+        </label>
+        <Button size="sm" onClick={downloadCsv} disabled={downloading || !from || !to}>
+          <Download size={14} /> {downloading ? 'Готовим…' : 'Скачать CSV'}
+        </Button>
+      </Card>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatTile label="Выручка всего" value={fmt(total)} />
