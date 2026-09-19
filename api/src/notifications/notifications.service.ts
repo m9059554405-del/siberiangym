@@ -4,6 +4,7 @@ import * as webpush from 'web-push';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { SmsService } from '../sms/sms.service';
+import { dayUtc } from '../schedule/series-dates.util';
 import type { JwtPayload } from '../auth/auth.service';
 
 // Как часто диспетчер напоминалок смотрит на расписание (P2.4). Окно
@@ -172,10 +173,12 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
     const from = new Date(now.getTime() + REMINDER_WINDOW_MIN * 60_000);
     const to = new Date(now.getTime() + REMINDER_WINDOW_MAX * 60_000);
 
+    // P3.11: «сегодня» — календарный день в зоне клуба (а не UTC-день
+    // сервера): вечером в Новосибирске занятия «сегодняшнего» дня не
+    // должны выпадать из выборки напоминалок.
+    const today = dayUtc(now);
     const classes = await this.prisma.groupClass.findMany({
-      where: {
-        date: { gte: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())), lte: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())) },
-      },
+      where: { date: { gte: today, lte: today } },
       include: { bookings: true },
     });
     // GroupClass.date — календарный день (UTC-полночь), время — строка

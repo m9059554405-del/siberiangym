@@ -99,6 +99,9 @@ services:
       SEED_CEO_PASSWORD: ${SEED_CEO_PASSWORD}
       GYM_LEGAL_NAME: ${GYM_LEGAL_NAME:-}
       GYM_CLUB_NAME: ${GYM_CLUB_NAME:-SiberianGym}
+      # P3.11: часовой пояс клуба — «сегодня» в сроках абонементов,
+      # заморозках и расписании считается по нему, а не по UTC сервера.
+      CLUB_TIMEZONE: ${CLUB_TIMEZONE:-Asia/Novosibirsk}
       # Объектное хранилище для фото (P0.5) — целевая конфигурация сервера
       # предполагает ОТДЕЛЬНОЕ S3-совместимое хранилище (например Selectel
       # S3), не MinIO на этом же VPS — поэтому здесь только переменные

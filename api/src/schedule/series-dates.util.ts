@@ -1,11 +1,14 @@
-// P2.12/P3.1: чистая часть генератора серий — окно дат и дни недели,
+// P2.12/P3.1/P3.11: чистая часть генератора серий — окно дат и дни недели,
 // вынесена из ScheduleService, чтобы календарную математику горизонта можно
 // было покрыть юнит-тестами без БД. Все даты — календарные дни UTC-полночь
-// (как @db.Date в Prisma).
+// (как @db.Date в Prisma); «сегодня» — календарный день текущего момента
+// в часовом поясе клуба (CLUB_TIMEZONE), см. common/club-timezone.ts.
 
-// Календарный день (UTC-полночь) из произвольного момента.
+import { zonedLogicalDate } from '../common/club-timezone';
+
+// Логическая дата (UTC-полночь) момента в зоне клуба.
 export function dayUtc(d: Date): Date {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  return zonedLogicalDate(d);
 }
 
 // Индекс дня недели календарного дня: 0=Пн ... 6=Вс — нумерация

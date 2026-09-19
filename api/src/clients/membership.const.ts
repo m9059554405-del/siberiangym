@@ -1,4 +1,5 @@
 import { ClientFormat, MembershipStatus, MembershipType, Tariff } from '@prisma/client';
+import { zonedLogicalDate } from '../common/club-timezone';
 
 // Общие для ClientsService и OrdersService константы абонементов — вынесены
 // сюда, чтобы при обработке заказа (P0.2) и при прямом действии администратора
@@ -47,14 +48,14 @@ export const FREEZE_LIMIT_DAYS: Record<MembershipType, number> = {
 export const FREEZE_MAX_DAYS_PER_REQUEST = 30;
 
 // Все даты-без-времени здесь — «логические даты» в виде UTC-полуночи:
-// Prisma читает и пишет колонки @db.Date как UTC-полуночь, поэтому
-// локальная полночь (setHours) при записи усекалась бы в PostgreSQL
-// на день раньше (для MSK — сдвиг на 3 часа назад) и разваливала
-// сравнения с датами, приехавшими из БД. Берём календарный день из
-// локального времени машины, но выражаем его полуночью UTC — тогда
-// запись в @db.Date и round-trip через diffInDays работают одинаково.
+// Prisma читает и пишет колонки @db.Date как UTC-полночь. С P3.11
+// календарный день определяется по ЧАСОВОМУ ПОЯСУ КЛУБА (CLUB_TIMEZONE,
+// по умолчанию Asia/Novosibirsk), а не по локальному времени сервера:
+// сервер в UTC «меняет день» в 00:00 UTC = 07:00 утра в Новосибирске, и
+// без этого вечер клуба относился бы к «вчерашнему» дню (сдвиг сроков
+// абонемента/заморозки на день). Подробности — common/club-timezone.ts.
 export function startOfDay(d: Date): Date {
-  return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  return zonedLogicalDate(d);
 }
 
 export function addDays(d: Date, days: number): Date {

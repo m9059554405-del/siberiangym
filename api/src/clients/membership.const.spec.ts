@@ -5,10 +5,15 @@ import { addDays, diffInDays, effectiveMembershipStatus, formatForTariff, startO
 // действия) — все даты «логические», UTC-полночь, как @db.Date в Prisma.
 
 describe('startOfDay / addDays / diffInDays', () => {
-  it('startUtcDay даёт UTC-полночь календарного дня локального времени', () => {
-    const d = startOfDay(new Date(2026, 8, 14, 18, 45)); // 14.09.2026 18:45 локально
-    expect(d.toISOString()).toBe('2026-09-14T00:00:00.000Z');
+  it('startOfDay даёт логическую дату по зоне клуба (UTC+7), а не по серверу', () => {
+    // P3.11: 18:45 UTC = уже 15.09 01:45 в Новосибирске
+    const d = startOfDay(new Date('2026-09-14T18:45:00.000Z'));
+    expect(d.toISOString()).toBe('2026-09-15T00:00:00.000Z');
     expect(d.getUTCHours()).toBe(0);
+  });
+
+  it('утро UTC — тот же календарный день', () => {
+    expect(startOfDay(new Date('2026-09-14T05:00:00.000Z')).toISOString()).toBe('2026-09-14T00:00:00.000Z');
   });
 
   it('diffInDays считает полные сутки через границу месяца', () => {
@@ -19,8 +24,11 @@ describe('startOfDay / addDays / diffInDays', () => {
     expect(diffInDays(new Date(Date.UTC(2026, 9, 14)), new Date(Date.UTC(2026, 8, 14)))).toBe(-30);
   });
 
-  it('diffInDays игнорирует время внутри суток', () => {
-    expect(diffInDays(new Date(2026, 8, 14, 23, 59), new Date(2026, 8, 15, 0, 1))).toBe(1);
+  it('diffInDays игнорирует время внутри клубного дня', () => {
+    // 05:00Z и 12:00Z — оба ещё 14.09 по зоне клуба (UTC+7)
+    expect(diffInDays(new Date('2026-09-14T05:00:00Z'), new Date('2026-09-14T12:00:00Z'))).toBe(0);
+    // 05:00Z 14.09 и 20:00Z 14.09 (=15.09 03:00 по клубу) — соседние дни
+    expect(diffInDays(new Date('2026-09-14T05:00:00Z'), new Date('2026-09-14T20:00:00Z'))).toBe(1);
   });
 
   it('addDays переходит через високосный февраль 2028', () => {
