@@ -11,6 +11,7 @@ import {
   useTrainers,
 } from '../../hooks/useClientApi'
 import { useCreateCashOrder, useCreateOnlineOrder, useMyOrders, useOnlinePaymentsEnabled } from '../../hooks/useOrdersApi'
+import { useApplyReferralCode, useMyReferrals } from '../../hooks/useReferralsApi'
 import { tariffById } from '../../data/tariffs'
 import { Badge, Button, Card, EmptyState, SectionTitle } from '../../components/ui/Primitives'
 import { TariffPicker } from '../../components/TariffPicker'
@@ -54,6 +55,15 @@ export function PaymentsPage() {
   const [pendingOrder, setPendingOrder] = useState<Order | null>(null)
   const [orderError, setOrderError] = useState<string | null>(null)
 
+  // P4.4: промокод вводится один раз и применяется к следующему заказу
+  // (абонемент/тариф), поле очищается после успешного оформления.
+  const [promoInput, setPromoInput] = useState('')
+  const promoCode = promoInput.trim().toUpperCase() || undefined
+  const referrals = useMyReferrals()
+  const applyReferral = useApplyReferralCode()
+  const [referralInput, setReferralInput] = useState('')
+  const [referralError, setReferralError] = useState<string | null>(null)
+
   const pendingMembershipKeys = new Set(
     (myOrders ?? [])
       .filter((o) => o.status === 'DRAFT' || o.status === 'AWAITING_PAYMENT')
@@ -95,11 +105,12 @@ export function PaymentsPage() {
   function purchaseMembership(type: MembershipType, scope: 'SINGLE_GYM' | 'NETWORK' = 'SINGLE_GYM') {
     if (!client) return
     createCashOrder.mutate(
-      { clientId: client.id, lines: [{ type: 'MEMBERSHIP_PURCHASE', meta: { membershipType: type, scope } }] },
+      { clientId: client.id, lines: [{ type: 'MEMBERSHIP_PURCHASE', meta: { membershipType: type, scope } }], promoCode },
       {
         onSuccess: (order) => {
           setPendingOrder(order)
           setOrderError(null)
+          setPromoInput('')
         },
         onError: (err) => setOrderError(err instanceof Error ? err.message : 'Не удалось оформить заказ'),
       },
@@ -111,7 +122,7 @@ export function PaymentsPage() {
   function purchaseMembershipOnline(type: MembershipType) {
     if (!client) return
     createOnlineOrder.mutate(
-      { clientId: client.id, lines: [{ type: 'MEMBERSHIP_PURCHASE', meta: { membershipType: type, scope: 'SINGLE_GYM' } }] },
+      { clientId: client.id, lines: [{ type: 'MEMBERSHIP_PURCHASE', meta: { membershipType: type, scope: 'SINGLE_GYM' } }], promoCode },
       {
         onSuccess: (order) => {
           if (order.paymentUrl) window.location.href = order.paymentUrl
@@ -124,11 +135,12 @@ export function PaymentsPage() {
   function changeTariff(tariff: Tariff) {
     if (!client) return
     createCashOrder.mutate(
-      { clientId: client.id, lines: [{ type: 'TARIFF_CHANGE', meta: { tariff } }] },
+      { clientId: client.id, lines: [{ type: 'TARIFF_CHANGE', meta: { tariff } }], promoCode },
       {
         onSuccess: (order) => {
           setPendingOrder(order)
           setOrderError(null)
+          setPromoInput('')
         },
         onError: (err) => setOrderError(err instanceof Error ? err.message : 'Не удалось оформить заказ'),
       },
@@ -237,6 +249,24 @@ export function PaymentsPage() {
       </Card>
 
       <section>
+        <SectionTitle title="Промокод" subtitle="Введите код перед покупкой — скидка применится к следующему заказу" />
+        <Card className="flex items-center gap-2">
+          <TicketPercent size={16} className="shrink-0 text-[var(--accent-strong)]" />
+          <input
+            value={promoInput}
+            onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
+            placeholder="Например, NEWYEAR2026"
+            className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 font-mono text-sm tracking-wide uppercase outline-none focus:border-[var(--accent)]"
+          />
+          {promoInput && (
+            <Button size="sm" variant="ghost" onClick={() => setPromoInput('')}>
+              Очистить
+            </Button>
+          )}
+        </Card>
+      </section>
+
+      <section>
         <SectionTitle title="Абонементы" subtitle="Выберите подходящий вариант — вступит в силу сразу" />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {(Object.keys(MEMBERSHIP_LABELS) as MembershipType[]).map((type) => {
@@ -310,6 +340,76 @@ export function PaymentsPage() {
           <Card className="text-sm text-[var(--text-muted)]">Чтобы выбрать тариф, сначала выберите тренера во вкладке «Тренер».</Card>
         )}
       </section>
+
+      {referrals.data && (
+        <section>
+          <SectionTitle
+            title="Приведи друга"
+            subtitle={`Передайте код другу — вы оба получите скидку ${referrals.data.referrerPercent}% на следующий заказ`}
+          />
+          <Card className="flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-[var(--text-muted)]">Ваш код</span>
+              <span className="rounded-lg bg-[var(--accent-soft)] px-3 py-1 font-mono text-sm font-bold tracking-widest text-[var(--accent-strong)]">
+                {referrals.data.referralCode}
+              </span>
+            </div>
+            {referrals.data.rewards.length > 0 && (
+              <div className="flex flex-col gap-1.5">
+                <div className="text-xs font-semibold uppercase tracking-wide text-[var(--text-faint)]">Ваши бонусы</div>
+                {referrals.data.rewards.map((r) => (
+                  <div key={r.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm">
+                    <span className="font-mono font-semibold tracking-wide">{r.code}</span>
+                    <span className="text-[var(--accent-strong)]">−{r.percentOff ?? 0}%</span>
+                    <span className="text-xs text-[var(--text-faint)]">{r.title ?? 'скидка на заказ'}</span>
+                    {r.remaining != null && (
+                      <span className="ml-auto">
+                        <Badge tone={r.remaining > 0 && r.isActive ? 'success' : 'neutral'}>
+                          {r.remaining > 0 && r.isActive ? `активен (${r.remaining})` : 'использован'}
+                        </Badge>
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {referrals.data.referrals.length > 0 && (
+              <div className="text-xs text-[var(--text-muted)]">
+                Приглашено друзей: {referrals.data.referrals.length} — {referrals.data.referrals.map((r) => r.name).join(', ')}
+              </div>
+            )}
+            {referrals.data.enabled && referrals.data.referrals.length === 0 && (
+              <div className="flex flex-col gap-1.5 border-t border-[var(--border)] pt-3">
+                <div className="text-xs text-[var(--text-muted)]">Вас пригласил друг? Активируйте его код — получите скидку {referrals.data.referredPercent}%</div>
+                {referralError && <span className="text-xs text-red-600">{referralError}</span>}
+                <div className="flex gap-2">
+                  <input
+                    value={referralInput}
+                    onChange={(e) => setReferralInput(e.target.value.toUpperCase())}
+                    placeholder="Реферальный код друга"
+                    className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 font-mono text-sm tracking-wide uppercase outline-none focus:border-[var(--accent)]"
+                  />
+                  <Button
+                    size="sm"
+                    disabled={!referralInput.trim() || applyReferral.isPending}
+                    onClick={() =>
+                      applyReferral.mutate(referralInput.trim(), {
+                        onSuccess: () => {
+                          setReferralInput('')
+                          setReferralError(null)
+                        },
+                        onError: (err) => setReferralError(err instanceof Error ? err.message : 'Не удалось активировать код'),
+                      })
+                    }
+                  >
+                    Активировать
+                  </Button>
+                </div>
+              </div>
+            )}
+          </Card>
+        </section>
+      )}
 
       <section>
         <SectionTitle title="Персональные и групповые тренировки" subtitle="Оплата происходит при записи на слот или занятие" />

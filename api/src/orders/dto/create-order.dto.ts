@@ -38,6 +38,16 @@ export class CreateOrderDto {
   @ValidateNested({ each: true })
   @Type(() => OrderLineInputDto)
   lines!: OrderLineInputDto[];
+
+  // P4.4: промокод (любая роль — персональный проверяется на владельца)
+  // и корпоративная атрибуция (только STAFF/CEO, проверка в сервисе).
+  @IsOptional()
+  @IsString()
+  promoCode?: string;
+
+  @IsOptional()
+  @IsString()
+  corporateAccountId?: string;
 }
 
 export class ConfirmReceiptDto {

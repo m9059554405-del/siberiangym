@@ -189,6 +189,9 @@ export function ClientsManagePage() {
   const [editDraft, setEditDraft] = useState<ClientDraft>(EMPTY_DRAFT)
   const [renewType, setRenewType] = useState<MembershipType>('MONTHLY')
   const [renewScope, setRenewScope] = useState<MembershipScope>('SINGLE_GYM')
+  // P4.4: промокод применяется к заказу абонемента/тарифа, вводится в
+  // карточке клиента рядом с формой продления.
+  const [renewPromo, setRenewPromo] = useState('')
   const [pendingOrder, setPendingOrder] = useState<Order | null>(null)
   const [orderError, setOrderError] = useState<string | null>(null)
 
@@ -251,6 +254,7 @@ export function ClientsManagePage() {
     })
     setRenewType(c.membership?.type ?? 'MONTHLY')
     setRenewScope('SINGLE_GYM')
+    setRenewPromo('')
     setLoginEmail('')
     setLoginPassword('')
     setLoginDone(false)
@@ -400,6 +404,8 @@ export function ClientsManagePage() {
             setRenewType={setRenewType}
             renewScope={renewScope}
             setRenewScope={setRenewScope}
+            renewPromo={renewPromo}
+            setRenewPromo={setRenewPromo}
             onSaveProfile={(patch) => updateClient.mutate({ clientId: editingClient.id, data: patch })}
             onSaveTrainer={() => {
               setOrderError(null)
@@ -407,7 +413,11 @@ export function ClientsManagePage() {
                 goSelfTraining.mutate(undefined, { onError: (err) => setOrderError(err instanceof ApiError ? err.message : 'Не удалось сохранить тренера') })
               } else {
                 createCashOrder.mutate(
-                  { clientId: editingClient.id, lines: [{ type: 'TARIFF_CHANGE', meta: { tariff: editDraft.tariff, trainerId: editDraft.trainerId } }] },
+                  {
+                    clientId: editingClient.id,
+                    lines: [{ type: 'TARIFF_CHANGE', meta: { tariff: editDraft.tariff, trainerId: editDraft.trainerId } }],
+                    promoCode: renewPromo.trim().toUpperCase() || undefined,
+                  },
                   { onSuccess: setPendingOrder, onError: (err) => setOrderError(err instanceof ApiError ? err.message : 'Не удалось создать заказ') },
                 )
               }
@@ -415,7 +425,11 @@ export function ClientsManagePage() {
             onRenew={() => {
               setOrderError(null)
               createCashOrder.mutate(
-                { clientId: editingClient.id, lines: [{ type: 'MEMBERSHIP_PURCHASE', meta: { membershipType: renewType, scope: renewScope } }] },
+                {
+                  clientId: editingClient.id,
+                  lines: [{ type: 'MEMBERSHIP_PURCHASE', meta: { membershipType: renewType, scope: renewScope } }],
+                  promoCode: renewPromo.trim().toUpperCase() || undefined,
+                },
                 { onSuccess: setPendingOrder, onError: (err) => setOrderError(err instanceof ApiError ? err.message : 'Не удалось создать заказ') },
               )
             }}
@@ -437,7 +451,7 @@ export function ClientsManagePage() {
 }
 
 function EditClientForm({
-  client, draft, setDraft, trainers, pricing, renewType, setRenewType, renewScope, setRenewScope, onSaveProfile, onSaveTrainer, onRenew,
+  client, draft, setDraft, trainers, pricing, renewType, setRenewType, renewScope, setRenewScope, renewPromo, setRenewPromo, onSaveProfile, onSaveTrainer, onRenew,
   pendingOrder, onDismissPendingOrder, orderError,
   loginEmail, setLoginEmail, loginPassword, setLoginPassword, loginDone, onCreateLogin, loginPending,
 }: {
@@ -450,6 +464,8 @@ function EditClientForm({
   setRenewType: (m: MembershipType) => void
   renewScope: MembershipScope
   setRenewScope: (s: MembershipScope) => void
+  renewPromo: string
+  setRenewPromo: (v: string) => void
   onSaveProfile: (patch: { name?: string; gender?: Gender; phone?: string; email?: string }) => void
   onSaveTrainer: () => void
   onRenew: () => void
@@ -518,6 +534,12 @@ function EditClientForm({
           </div>
         )}
         <MembershipFreezeSection client={client} />
+        <input
+          value={renewPromo}
+          onChange={(e) => setRenewPromo(e.target.value.toUpperCase())}
+          placeholder="Промокод (необязательно)"
+          className="rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 font-mono text-sm tracking-wide outline-none focus:border-[var(--accent)]"
+        />
         <select value={renewType} onChange={(e) => setRenewType(e.target.value as MembershipType)}
           className="rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-2.5 py-2 text-sm">
           {pricing && (Object.keys(MEMBERSHIP_LABEL) as MembershipType[]).map((m) => (

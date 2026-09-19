@@ -8,6 +8,15 @@ export interface OrderLineInput {
   meta?: Record<string, unknown>
 }
 
+// P4.4: заказ можно собрать с промокодом (клиент/сотрудник) и списать на
+// корпоративный договор (только сотрудник — API проверяет роль).
+export interface CreateOrderVars {
+  clientId: string
+  lines: OrderLineInput[]
+  promoCode?: string
+  corporateAccountId?: string
+}
+
 // Очередь незакрытых заказов на точке — для раздела "Заказы" у CEO/STAFF,
 // где администратор сканирует чек и подтверждает оплату (P0.2).
 export function useOpenOrders() {
@@ -47,7 +56,7 @@ function useInvalidateAfterOrder() {
 export function useCreateCashOrder() {
   const invalidate = useInvalidateAfterOrder()
   return useMutation({
-    mutationFn: async (vars: { clientId: string; lines: OrderLineInput[] }) => {
+    mutationFn: async (vars: CreateOrderVars) => {
       const order = await api.post<Order>('/orders', vars)
       return api.post<Order>(`/orders/${order.id}/pay/cash`)
     },
@@ -58,7 +67,7 @@ export function useCreateCashOrder() {
 export function useCreateOrder() {
   const invalidate = useInvalidateAfterOrder()
   return useMutation({
-    mutationFn: (vars: { clientId: string; lines: OrderLineInput[] }) => api.post<Order>('/orders', vars),
+    mutationFn: (vars: CreateOrderVars) => api.post<Order>('/orders', vars),
     onSuccess: invalidate,
   })
 }
@@ -103,7 +112,7 @@ export function useCancelOrder() {
 export function useCreateOnlineOrder() {
   const invalidate = useInvalidateAfterOrder()
   return useMutation({
-    mutationFn: async (vars: { clientId: string; lines: OrderLineInput[] }) => {
+    mutationFn: async (vars: CreateOrderVars) => {
       const order = await api.post<Order>('/orders', vars)
       const paid = await api.post<Order & { paymentUrl: string }>(`/orders/${order.id}/pay/online`)
       return paid

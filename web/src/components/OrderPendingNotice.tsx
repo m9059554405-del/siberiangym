@@ -15,6 +15,11 @@ export function OrderPendingNotice({ order, onDismiss }: { order: Order; onDismi
       </div>
       <div className="min-w-0 flex-1">
         <div className="text-sm font-semibold text-[var(--accent-strong)]">Заказ оформлен на {formatMoney(order.totalAmount)} ₽</div>
+        {(order.discount ?? 0) > 0 && (
+          <p className="mt-0.5 text-xs text-[var(--accent-strong)]">
+            Скидка {formatMoney(order.discount ?? 0)} ₽ применена{order.promoCode ? ` (промокод ${order.promoCode.code})` : ''}
+          </p>
+        )}
         <p className="mt-0.5 text-xs text-[var(--text-muted)]">
           Оплатите наличными на ресепшене — администратор пробьёт чек и отсканирует его в системе, после этого заказ будет закрыт.
         </p>

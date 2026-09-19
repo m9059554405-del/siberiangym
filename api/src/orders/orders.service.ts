@@ -73,7 +73,12 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
   private async getOwnedOrder(actor: JwtPayload, orderId: string) {
     const order = await this.prisma.order.findFirst({
       where: { id: orderId, gymId: actor.gymId },
-      include: { lines: true, client: true },
+      include: {
+        lines: true,
+        client: true,
+        promoCode: { select: { code: true } },
+        corporateAccount: { select: { name: true } },
+      },
     });
     if (!order) throw new NotFoundException('Заказ не найден');
     // Видимость и право завершить заказ — по точке (gymId), а не по создавшему
@@ -278,6 +283,73 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  // P4.4: валидация промокода для заказа. Нормализация кода (верхний
+  // регистр, трим) должна совпадать с промо-модулем — код однозначно
+  // идентифицируется парой (gymId, code).
+  private async validatePromoCode(gymId: string, clientId: string, rawCode: string) {
+    const code = rawCode.trim().toUpperCase();
+    const promo = await this.prisma.promoCode.findUnique({ where: { gymId_code: { gymId, code } } });
+    if (!promo) throw new NotFoundException(`Промокод ${code} не найден`);
+    if (!promo.isActive) throw new BadRequestException(`Промокод ${code} деактивирован`);
+    const now = new Date();
+    if (promo.validFrom && promo.validFrom > now) throw new BadRequestException(`Промокод ${code} ещё не действует`);
+    if (promo.validUntil && promo.validUntil < now) throw new BadRequestException(`Срок действия промокода ${code} истёк`);
+    if (promo.clientId && promo.clientId !== clientId) {
+      throw new BadRequestException(`Промокод ${code} персональный — он привязан к другому клиенту`);
+    }
+    if (promo.maxUses > 0 && promo.usedCount >= promo.maxUses) {
+      throw new ConflictException(`Лимит использований промокода ${code} исчерпан`);
+    }
+    return promo;
+  }
+
+  // P4.4: атрибуция заказа корпоративному договору — только сотрудник
+  // (клиент не может «записать» свой заказ на компанию сам) и только
+  // на договор своей точки, в списке участников которого клиент состоит.
+  private async validateCorporateAccount(actor: JwtPayload, gymId: string, clientId: string, accountId: string) {
+    if (actor.role === 'CLIENT') {
+      throw new ForbiddenException('Привязать заказ к корпоративному договору может только сотрудник клуба');
+    }
+    const account = await this.prisma.corporateAccount.findFirst({ where: { id: accountId, gymId } });
+    if (!account) throw new NotFoundException('Корпоративный договор не найден');
+    if (!account.isActive) throw new BadRequestException('Корпоративный договор деактивирован');
+    const member = await this.prisma.corporateMember.findUnique({
+      where: { corporateAccountId_clientId: { corporateAccountId: account.id, clientId } },
+    });
+    if (!member) throw new BadRequestException('Клиент не входит в этот корпоративный договор');
+    return account;
+  }
+
+  // P4.4: скидки не складываются — действует большая из доступных
+  // (промокод против договорной корпоративной). Промокод «сгорает» только
+  // если победила его скидка; заказ при этом всегда атрибутируется
+  // договору, когда он указан — ведомость компании должна видеть и заказы,
+  // оплаченные со скидкой по чужому промокоду.
+  private computeDiscount(
+    subtotal: number,
+    promo: { percentOff: number | null; amountOff: number | null } | null,
+    corporate: { discountPercent: number } | null,
+  ): { discount: number; usePromo: boolean } {
+    const promoDiscount = promo
+      ? promo.percentOff != null
+        ? Math.floor((subtotal * promo.percentOff) / 100)
+        : Math.min(promo.amountOff ?? 0, subtotal)
+      : 0;
+    const corpDiscount = corporate ? Math.floor((subtotal * corporate.discountPercent) / 100) : 0;
+    const usePromo = promo != null && subtotal > 0 && promoDiscount >= corpDiscount;
+    return { discount: Math.min(subtotal, Math.max(promoDiscount, corpDiscount)), usePromo };
+  }
+
+  // P4.4: возврат «использования» промокода при закрытии заказа без оплаты
+  // (отмена/просрочка) — отменённый заказ не должен сжигать лимит промо.
+  private async releasePromoCode(promoCodeId: string | null | undefined) {
+    if (!promoCodeId) return;
+    await this.prisma.promoCode.updateMany({
+      where: { id: promoCodeId, usedCount: { gt: 0 } },
+      data: { usedCount: { decrement: 1 } },
+    });
+  }
+
   async createOrder(actor: JwtPayload, dto: CreateOrderDto) {
     const client = await this.prisma.client.findFirst({ where: { id: dto.clientId, gymId: actor.gymId } });
     if (!client) throw new NotFoundException('Клиент не найден');
@@ -290,25 +362,52 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
     for (const line of dto.lines) {
       quoted.push(await this.quoteLine(actor.gymId, dto.clientId, line));
     }
-    const totalAmount = quoted.reduce((sum, l) => sum + l.amount, 0);
+    const subtotal = quoted.reduce((sum, l) => sum + l.amount, 0);
 
-    return this.prisma.order.create({
-      data: {
-        gymId: actor.gymId,
-        clientId: dto.clientId,
-        createdBy: actor.sub,
-        status: 'DRAFT',
-        totalAmount,
-        lines: {
-          create: quoted.map((l) => ({
-            type: l.type,
-            refId: l.refId,
-            amount: l.amount,
-            meta: l.meta === null ? Prisma.JsonNull : (l.meta as Prisma.InputJsonValue),
-          })),
+    // P4.4: промокод и корпоративная атрибуция — валидация до создания
+    // заказа, чтобы невалидный промокод не оставлял после себя черновик.
+    const promo = dto.promoCode ? await this.validatePromoCode(actor.gymId, dto.clientId, dto.promoCode) : null;
+    const corporate = dto.corporateAccountId
+      ? await this.validateCorporateAccount(actor, actor.gymId, dto.clientId, dto.corporateAccountId)
+      : null;
+    const { discount, usePromo } = this.computeDiscount(subtotal, promo, corporate);
+    const totalAmount = subtotal - discount;
+
+    // Инкремент usedCount атомарен (updateMany с guard по лимиту) и живёт в
+    // одной транзакции с созданием заказа — два параллельных заказа не
+    // «прорвутся» за одним одноразовым промокодом.
+    return this.prisma.$transaction(async (tx) => {
+      if (usePromo && promo) {
+        const consumed =
+          promo.maxUses > 0
+            ? await tx.promoCode.updateMany({
+                where: { id: promo.id, usedCount: { lt: promo.maxUses } },
+                data: { usedCount: { increment: 1 } },
+              })
+            : await tx.promoCode.updateMany({ where: { id: promo.id }, data: { usedCount: { increment: 1 } } });
+        if (consumed.count === 0) throw new ConflictException(`Лимит использований промокода ${promo.code} исчерпан`);
+      }
+      return tx.order.create({
+        data: {
+          gymId: actor.gymId,
+          clientId: dto.clientId,
+          createdBy: actor.sub,
+          status: 'DRAFT',
+          totalAmount,
+          discount,
+          promoCodeId: usePromo && promo ? promo.id : null,
+          corporateAccountId: corporate ? corporate.id : null,
+          lines: {
+            create: quoted.map((l) => ({
+              type: l.type,
+              refId: l.refId,
+              amount: l.amount,
+              meta: l.meta === null ? Prisma.JsonNull : (l.meta as Prisma.InputJsonValue),
+            })),
+          },
         },
-      },
-      include: { lines: true },
+        include: { lines: true, promoCode: { select: { code: true } } },
+      });
     });
   }
 
@@ -322,7 +421,7 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
         paymentMethod: 'CASH',
         expiresAt: new Date(Date.now() + AWAITING_PAYMENT_TIMEOUT_MINUTES * 60_000),
       },
-      include: { lines: true },
+      include: { lines: true, promoCode: { select: { code: true } }, corporateAccount: { select: { name: true } } },
     });
     await this.activityLog.log(actor, 'Отправил заказ на оплату наличными', order.client.name, `${order.lines.length} поз. на ${order.totalAmount} ₽`);
     return updated;
@@ -347,7 +446,7 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
         paymentMethod: 'CARD_ONLINE',
         expiresAt: new Date(Date.now() + AWAITING_PAYMENT_TIMEOUT_MINUTES * 60_000),
       },
-      include: { lines: true },
+      include: { lines: true, promoCode: { select: { code: true } }, corporateAccount: { select: { name: true } } },
     });
     await this.activityLog.log(actor, 'Отправил заказ на онлайн-оплату картой', order.client.name, `${order.lines.length} поз. на ${order.totalAmount} ₽`);
     return { ...updated, paymentUrl };
@@ -707,6 +806,7 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
         where: { id: orderId },
         data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: reason },
       });
+      await this.releasePromoCode(order.promoCodeId);
       const webhookActor: JwtPayload = { sub: 'acquiring-webhook', role: 'CEO', gymId: order.gymId };
       await this.activityLog.log(webhookActor, 'Онлайн-оплата не прошла — заказ отменён', order.clientId, reason);
       return { cancelled: true, order: updated };
@@ -724,15 +824,20 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
       data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: reason ?? null },
       include: { lines: true },
     });
+    await this.releasePromoCode(order.promoCodeId);
     await this.activityLog.log(actor, 'Отменил заказ', order.client.name, reason ?? 'Без указания причины');
     return updated;
   }
 
   private async markExpired(orderId: string) {
-    await this.prisma.order.updateMany({
+    const expired = await this.prisma.order.updateMany({
       where: { id: orderId, status: 'AWAITING_PAYMENT' },
       data: { status: 'EXPIRED', cancelledAt: new Date() },
     });
+    if (expired.count > 0) {
+      const order = await this.prisma.order.findUnique({ where: { id: orderId }, select: { promoCodeId: true } });
+      await this.releasePromoCode(order?.promoCodeId);
+    }
   }
 
   // "Брошенные" заказы: никто не подтвердил оплату в пределах таймаута
@@ -742,20 +847,29 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
   async expireStale() {
     const stale = await this.prisma.order.findMany({
       where: { status: 'AWAITING_PAYMENT', expiresAt: { lt: new Date() } },
-      select: { id: true },
+      select: { id: true, promoCodeId: true },
     });
     if (stale.length === 0) return;
     await this.prisma.order.updateMany({
       where: { id: { in: stale.map((o) => o.id) } },
       data: { status: 'EXPIRED', cancelledAt: new Date() },
     });
+    // P4.4: просроченные заказы освобождают занятые промокоды.
+    for (const o of stale) {
+      await this.releasePromoCode(o.promoCodeId);
+    }
     this.logger.log(`Просрочено заказов без подтверждения оплаты: ${stale.length}`);
   }
 
   findOpen(gymId: string) {
     return this.prisma.order.findMany({
       where: { gymId, status: { in: ['DRAFT', 'AWAITING_PAYMENT'] } },
-      include: { lines: true, client: true },
+      include: {
+        lines: true,
+        client: true,
+        promoCode: { select: { code: true } },
+        corporateAccount: { select: { name: true } },
+      },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -765,7 +879,7 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
   findPaidByClient(gymId: string, clientId: string) {
     return this.prisma.order.findMany({
       where: { gymId, clientId, status: 'PAID' },
-      include: { lines: true, client: true },
+      include: { lines: true, client: true, promoCode: { select: { code: true } } },
       orderBy: { paidAt: 'desc' },
       take: 20,
     });
@@ -776,7 +890,7 @@ export class OrdersService implements OnModuleInit, OnModuleDestroy {
     if (!client) return [];
     return this.prisma.order.findMany({
       where: { clientId: client.id },
-      include: { lines: true },
+      include: { lines: true, promoCode: { select: { code: true } }, corporateAccount: { select: { name: true } } },
       orderBy: { createdAt: 'desc' },
       take: 20,
     });

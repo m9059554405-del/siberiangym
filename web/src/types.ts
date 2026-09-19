@@ -44,6 +44,10 @@ export interface Order {
   status: OrderStatus
   paymentMethod: OrderPaymentMethod | null
   totalAmount: number
+  // P4.4: скидка на момент создания (промокод/корпоративная), totalAmount уже за её вычетом
+  discount?: number
+  promoCode?: { code: string } | null
+  corporateAccount?: { name: string } | null
   receiptRaw: string | null
   receiptDate: string | null
   receiptFn: string | null
@@ -582,4 +586,84 @@ export interface Lead {
   convertedAt: string | null
   createdAt: string
   updatedAt: string
+}
+
+// --- Инструменты продаж (P4.4): промокоды, рефералы, корпоративные договоры ---
+
+export interface PromoCode {
+  id: string
+  gymId: string
+  code: string
+  title: string | null
+  percentOff: number | null
+  amountOff: number | null
+  validFrom: string | null
+  validUntil: string | null
+  maxUses: number
+  usedCount: number
+  isActive: boolean
+  clientId: string | null
+  createdAt: string
+  _count?: { orders: number }
+}
+
+export interface ReferralSettings {
+  gymId: string
+  enabled: boolean
+  referrerPercent: number
+  referredPercent: number
+}
+
+// Ответ GET /api/referrals/me — страница «приведи друга» в кабинете клиента.
+export interface ReferralMe {
+  referralCode: string
+  enabled: boolean
+  referrerPercent: number
+  referredPercent: number
+  rewards: {
+    id: string
+    code: string
+    title: string | null
+    percentOff: number | null
+    amountOff: number | null
+    validUntil: string | null
+    isActive: boolean
+    remaining: number | null
+  }[]
+  referrals: { id: string; name: string; createdAt: string }[]
+}
+
+export interface CorporateMember {
+  id: string
+  corporateAccountId: string
+  clientId: string
+  addedAt: string
+  client?: { id: string; name: string; phone: string | null }
+}
+
+export interface CorporateAccount {
+  id: string
+  gymId: string
+  name: string
+  contactPerson: string | null
+  contactPhone: string | null
+  discountPercent: number
+  isActive: boolean
+  createdAt: string
+  members?: CorporateMember[]
+  _count?: { members: number; orders: number }
+}
+
+export interface CorporateStatement {
+  account: { id: string; name: string; discountPercent: number; isActive: boolean }
+  orders: {
+    id: string
+    clientName: string
+    totalAmount: number
+    discount: number
+    paidAt: string | null
+    lines: { type: string; amount: number }[]
+  }[]
+  count: number
+  totalRub: number
 }

@@ -24,7 +24,7 @@ datasource db {
 // отдельно фиксирует множественность CEO/совладельцев как нерешённый
 // вопрос, не смешивается с этим пунктом.
 model Network {
-  id String @id @default(cuid())
+  id        String   @id @default(cuid())
   // Намеренно БЕЗ @relation на User (нет внешнего ключа на уровне БД) —
   // единственный способ разорвать циклическую зависимость при бутстрапе
   // первой установки: Gym требует существующую Network, Network в обычном
@@ -67,7 +67,7 @@ model Gym {
   // заказ на кассе (0.4.0), centralized_kiosk — терминал-киоск со сканером
   // QR назначает/возвращает шкафчики сам. Оборудование привязано к точке,
   // не к сети (P1.8); большинство точек остаётся в manual.
-  lockerMode       LockerMode @default(manual) @map("locker_mode")
+  lockerMode LockerMode @default(manual) @map("locker_mode")
 
   users              User[]
   clients            Client[]
@@ -100,6 +100,13 @@ model Gym {
   leads              Lead[]
   workingHours       GymWorkingHours[]
   cleaningZones      CleaningZone[]
+
+  // P4.4: инструменты продаж точки — промокоды, реферальная программа,
+  // корпоративные договоры.
+  promoCodes        PromoCode[]
+  referralSettings  ReferralSettings?
+  referrals         Referral[]
+  corporateAccounts CorporateAccount[]
 
   @@map("gyms")
 }
@@ -135,31 +142,31 @@ enum Role {
 // т.к. администратор может завести карточку клиента до того, как у него
 // появится доступ в личный кабинет).
 model User {
-  id           String   @id @default(cuid())
-  gymId        String   @map("gym_id")
-  gym          Gym      @relation(fields: [gymId], references: [id])
-  email        String?  @unique
-  phone        String?  @unique
+  id                     String   @id @default(cuid())
+  gymId                  String   @map("gym_id")
+  gym                    Gym      @relation(fields: [gymId], references: [id])
+  email                  String?  @unique
+  phone                  String?  @unique
   // ФИО — заполняется только у STAFF, заведённых через инструмент CEO
   // (P1.10): у CLIENT/TRAINER своё имя уже есть на их собственной карточке
   // (Client.name/Trainer.name), дублировать его здесь не нужно; у CEO
   // (единственная сегодня учётная запись без карточки, заводится
   // seed-скриптом) может оставаться пустым.
-  name         String?
-  passwordHash             String   @map("password_hash")
-  role                     Role
-  isActive                 Boolean  @default(true) @map("is_active")
-  twoFactorSecret          String?  @map("two_factor_secret")
-  twoFactorPendingSecret   String?  @map("two_factor_pending_secret")
-  twoFactorEnabled         Boolean  @default(false) @map("two_factor_enabled")
+  name                   String?
+  passwordHash           String   @map("password_hash")
+  role                   Role
+  isActive               Boolean  @default(true) @map("is_active")
+  twoFactorSecret        String?  @map("two_factor_secret")
+  twoFactorPendingSecret String?  @map("two_factor_pending_secret")
+  twoFactorEnabled       Boolean  @default(false) @map("two_factor_enabled")
   // P3.8: монотонная версия учёных записей для отзыва JWT. Каждый
   // выданный токен несёт sesVer (версию сессии на момент входа); любое
   // инвалидирование (смена пароля, отключение 2FA, деактивация) поднимает
   // версию — все ранее выданные токены пользователя автоматически
   // перестают проходить проверку в JwtStrategy.
-  sessionVersion          Int      @default(0) @map("session_version")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  sessionVersion         Int      @default(0) @map("session_version")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
 
   clientProfile       Client?
   trainerProfile      Trainer?
@@ -170,13 +177,13 @@ model User {
 }
 
 model PasswordResetToken {
-  id        String   @id @default(cuid())
-  userId    String   @map("user_id")
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash String   @unique @map("token_hash")
-  expiresAt DateTime @map("expires_at")
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
   usedAt    DateTime? @map("used_at")
-  createdAt DateTime @default(now()) @map("created_at")
+  createdAt DateTime  @default(now()) @map("created_at")
 
   @@index([userId, expiresAt])
   @@map("password_reset_tokens")
@@ -219,38 +226,47 @@ model Client {
   birthday        DateTime?    @db.Date
   phone           String?
   email           String?
+  // P4.4: персональный реферальный код («приведи друга»). Выдаётся лениво
+  // при первом обращении к реферальному API — у старых клиентов NULL.
+  referralCode    String?      @unique @map("referral_code")
   profilePhotoUrl String?      @map("profile_photo_url")
   splitPlan       String[]     @map("split_plan")
 
-  membership         Membership?
-  formatHistory      ClientFormatHistoryEntry[]
-  program            Program?
-  workoutLogs        WorkoutLogEntry[]
-  progressPhotos     ProgressPhoto[]
-  measurements       Measurement[]
-  cycleLogs          CycleLog[]
-  feedbackMessages   FeedbackMessage[]
-  directorMessages   DirectorMessage[]
-  outreachNotes      OutreachNote[]
-  transactions       Transaction[]
-  groupClassBookings GroupClassBooking[]
-  personalSlots      PersonalSlot[]
-  lockerRentals      Locker[]
-  orders             Order[]
-  consentRecords     ConsentRecord[]
-  guardianLinks      GuardianChild[]
-  checkins           CheckinEntry[]
-  groupClassWaitlist GroupClassWaitlistEntry[]
-  pushSubscriptions  PushSubscription[]
-  notifications      ClientNotification[]
+  membership           Membership?
+  formatHistory        ClientFormatHistoryEntry[]
+  program              Program?
+  workoutLogs          WorkoutLogEntry[]
+  progressPhotos       ProgressPhoto[]
+  measurements         Measurement[]
+  cycleLogs            CycleLog[]
+  feedbackMessages     FeedbackMessage[]
+  directorMessages     DirectorMessage[]
+  outreachNotes        OutreachNote[]
+  transactions         Transaction[]
+  groupClassBookings   GroupClassBooking[]
+  personalSlots        PersonalSlot[]
+  lockerRentals        Locker[]
+  orders               Order[]
+  consentRecords       ConsentRecord[]
+  guardianLinks        GuardianChild[]
+  checkins             CheckinEntry[]
+  groupClassWaitlist   GroupClassWaitlistEntry[]
+  pushSubscriptions    PushSubscription[]
+  notifications        ClientNotification[]
+  // P4.4: инструменты продаж — персональные промокоды (реферальные бонусы),
+  // реферальные связки в обе стороны, членство в корпоративных договорах.
+  promoCodes           PromoCode[]
+  referralsGiven       Referral[]                 @relation("ReferralReferrer")
+  referralsReceived    Referral[]                 @relation("ReferralReferred")
+  corporateMemberships CorporateMember[]
   // P2.6: если клиент вырос из лида (гостевой карточки), связь сохраняется
   // после конвертации — история воронки «пришёл узнать → купил».
-  convertedFromLeads Lead[]             @relation("LeadConversion")
+  convertedFromLeads   Lead[]                     @relation("LeadConversion")
   // Необязательная обратная связь — если этот клиент сам является чьим-то
   // законным представителем (родитель, тоже тренирующийся в клубе), у него
   // есть привязанная карточка Guardian (P0.6). Guardian.linkedClientId
   // ссылается сюда.
-  guardianProfile    Guardian?
+  guardianProfile      Guardian?
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -381,13 +397,13 @@ model Trainer {
   user   User?   @relation(fields: [userId], references: [id])
 
   name                 String
-  avatarHue            Int     @default(210) @map("avatar_hue")
+  avatarHue            Int             @default(210) @map("avatar_hue")
   specialization       String
   bio                  String?
-  fullBio              String? @map("full_bio")
-  experienceYears      Int     @default(0) @map("experience_years")
-  personalSessionPrice Int     @map("personal_session_price")
-  externalUrl          String? @map("external_url")
+  fullBio              String?         @map("full_bio")
+  experienceYears      Int             @default(0) @map("experience_years")
+  personalSessionPrice Int             @map("personal_session_price")
+  externalUrl          String?         @map("external_url")
   // P1.4 — оба nullable по той же причине, что и employmentType: не
   // придумываем задним числом значения существующим тренерам.
   employmentType       EmploymentType? @map("employment_type")
@@ -400,14 +416,14 @@ model Trainer {
   // Оба поля всегда либо заполнены вместе, либо оба пустые (работает как
   // обычно) — целостность держит сервис, а не БД, чтобы не плодить
   // частично заполненные диапазоны из старых клиентов Prisma.
-  unavailableFrom DateTime? @map("unavailable_from") @db.Date
+  unavailableFrom  DateTime? @map("unavailable_from") @db.Date
   unavailableUntil DateTime? @map("unavailable_until") @db.Date
   // Окончательно ушедший (P2.10): момент, когда CEO зафиксировал уход.
   // Это не то же самое, что недоступность — уход необратим в рамках
   // операционки (возврат = отдельное явное решение через ACTIVE), а логин
   // тренера деактивируется (User.isActive=false), см. P3.8/P3.9 про то,
   // почему деактивация, а не удаление.
-  departedAt DateTime? @map("departed_at")
+  departedAt       DateTime? @map("departed_at")
 
   clients           Client[]
   workHours         TrainerWorkHour[]
@@ -422,7 +438,7 @@ model Trainer {
   // `gymId` выше остаётся "домашней" точкой (где заведена карточка и
   // логин), эта связь — только для точек СВЕРХ неё. Тренер без единой
   // записи здесь всё равно работает как раньше (только на своей точке).
-  additionalGyms TrainerGym[]
+  additionalGyms    TrainerGym[]
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -457,14 +473,14 @@ model TrainerWorkHour {
 }
 
 model TrainerCredential {
-  id        String  @id @default(cuid())
-  trainerId String  @map("trainer_id")
-  trainer   Trainer @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  id         String    @id @default(cuid())
+  trainerId  String    @map("trainer_id")
+  trainer    Trainer   @relation(fields: [trainerId], references: [id], onDelete: Cascade)
   title      String
-  issuedBy   String?  @map("issued_by")
+  issuedBy   String?   @map("issued_by")
   year       Int?
   expiresAt  DateTime? @map("expires_at") @db.Date
-  isRequired Boolean  @default(false) @map("is_required")
+  isRequired Boolean   @default(false) @map("is_required")
 
   @@map("trainer_credentials")
 }
@@ -651,17 +667,17 @@ model GroupClass {
 // с записями — отменяются с уведомлением клиентов (записи не переносятся
 // автоматически: возврат денег — отдельный ручной процесс P0.7).
 model GroupClassSeries {
-  id        String  @id @default(cuid())
-  gymId     String  @map("gym_id")
-  gym       Gym     @relation(fields: [gymId], references: [id])
-  type      String
-  trainerId String  @map("trainer_id")
-  trainer   Trainer @relation(fields: [trainerId], references: [id])
-  zone      String
-  start     String // "HH:MM"
-  end       String
-  capacity  Int
-  weekdays  Int[] // 0=Пн ... 6=Вс — как TrainerWorkHour.day
+  id          String    @id @default(cuid())
+  gymId       String    @map("gym_id")
+  gym         Gym       @relation(fields: [gymId], references: [id])
+  type        String
+  trainerId   String    @map("trainer_id")
+  trainer     Trainer   @relation(fields: [trainerId], references: [id])
+  zone        String
+  start       String // "HH:MM"
+  end         String
+  capacity    Int
+  weekdays    Int[] // 0=Пн ... 6=Вс — как TrainerWorkHour.day
   // Серия действует с startDate по endDate включительно; endDate null —
   // бессрочно (пока не отменят). Оба поля — календарные дни UTC-полночь.
   startDate   DateTime  @map("start_date") @db.Date
@@ -759,24 +775,24 @@ enum LockerDoorState {
 }
 
 model Locker {
-  id          String           @id @default(cuid())
-  gymId       String           @map("gym_id")
-  gym         Gym              @relation(fields: [gymId], references: [id])
-  number      Int
-  status      LockerStatus     @default(FREE)
-  rentedBy    String?          @map("rented_by")
-  client      Client?          @relation(fields: [rentedBy], references: [id])
-  rentedUntil DateTime?        @map("rented_until") @db.Date
-  pricePerDay Int              @map("price_per_day")
+  id            String           @id @default(cuid())
+  gymId         String           @map("gym_id")
+  gym           Gym              @relation(fields: [gymId], references: [id])
+  number        Int
+  status        LockerStatus     @default(FREE)
+  rentedBy      String?          @map("rented_by")
+  client        Client?          @relation(fields: [rentedBy], references: [id])
+  rentedUntil   DateTime?        @map("rented_until") @db.Date
+  pricePerDay   Int              @map("price_per_day")
   // Оборудование киоска (P2.8): банк (ряд) шкафчиков, сетевой контроллер
   // ряда и номер релейного выхода на дверцу. Заполнены только на точках
   // с централизованным управлением; null — обычный шкафчик под ручную
   // аренду. assignedAt — момент назначения через киоск (rentedBy — кто).
-  bankId         String?          @map("bank_id")
-  controllerId   String?          @map("controller_id")
-  channelNumber  Int?             @map("channel_number")
-  doorState      LockerDoorState? @map("door_state")
-  assignedAt     DateTime?        @map("assigned_at")
+  bankId        String?          @map("bank_id")
+  controllerId  String?          @map("controller_id")
+  channelNumber Int?             @map("channel_number")
+  doorState     LockerDoorState? @map("door_state")
+  assignedAt    DateTime?        @map("assigned_at")
 
   @@index([gymId])
   @@map("lockers")
@@ -849,9 +865,16 @@ model Order {
   client    Client @relation(fields: [clientId], references: [id])
   createdBy String @map("created_by") // userId того, кто собрал заказ — видимость и право закрыть не привязаны к нему намертво (P0.2)
 
-  status        OrderStatus         @default(DRAFT)
-  paymentMethod OrderPaymentMethod? @map("payment_method")
-  totalAmount   Int                 @map("total_amount") // сумма всех строк на момент СОЗДАНИЯ заказа — ценовой снэпшот, не пересчитывается при оплате
+  status             OrderStatus         @default(DRAFT)
+  paymentMethod      OrderPaymentMethod? @map("payment_method")
+  totalAmount        Int                 @map("total_amount") // сумма всех строк на момент СОЗДАНИЯ заказа — ценовой снэпшот, не пересчитывается при оплате
+  // P4.4: скидка на момент создания заказа (промокод и/или корпоративная
+  // скидка) — тоже снэпшот; totalAmount уже за вычетом discount.
+  discount           Int                 @default(0)
+  promoCodeId        String?             @map("promo_code_id")
+  promoCode          PromoCode?          @relation(fields: [promoCodeId], references: [id])
+  corporateAccountId String?             @map("corporate_account_id")
+  corporateAccount   CorporateAccount?   @relation(fields: [corporateAccountId], references: [id])
 
   // Сырые и разобранные данные фискального чека (формат ФНС:
   // t=<дата-время>&s=<сумма>&fn=<номер ФН>&i=<номер документа>&fp=<фискальный признак>&n=<тип операции>).
@@ -959,6 +982,110 @@ model RefundLine {
   @@map("refund_lines")
 }
 
+// --- Инструменты продаж (P4.4): промокоды, рефералы, корпоративные абонементы ---
+
+// Промокод — скидка на весь заказ. Либо процент, либо фиксированная сумма
+// (в рублях) — ровно одно из двух. Код уникален в пределах зала, сервис
+// нормализует его в верхний регистр. maxUses=0 — без ограничения числа
+// применений; каждое создание заказа с промокодом атомарно инкрементирует
+// usedCount, отмена/просрочка заказа — декрементирует.
+// clientId заполнен только у персональных промокодов (реферальные бонусы):
+// такой промокод применим исключительно к заказам этого клиента.
+model PromoCode {
+  id         String    @id @default(cuid())
+  gymId      String    @map("gym_id")
+  gym        Gym       @relation(fields: [gymId], references: [id])
+  code       String
+  title      String? // что это за акция — подпись для сотрудника в списке
+  percentOff Int?      @map("percent_off") // 1..100
+  amountOff  Int?      @map("amount_off") // рубли
+  validFrom  DateTime? @map("valid_from") // NULL = действует с момента создания
+  validUntil DateTime? @map("valid_until") // NULL = бессрочно
+  maxUses     Int       @default(1) @map("max_uses")
+  usedCount   Int       @default(0) @map("used_count")
+  isActive    Boolean   @default(true) @map("is_active")
+  clientId    String?   @map("client_id")
+  client      Client?   @relation(fields: [clientId], references: [id])
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  orders Order[]
+
+  @@unique([gymId, code])
+  @@index([gymId, isActive])
+  @@map("promo_codes")
+}
+
+// Реферальная связка «кто кого привёл» (P4.4). referredId уникален:
+// каждый клиент может быть «приглашённым» максимум один раз; один клиент
+// может пригласить многих. Бонусы обеим сторонам выдаются персональными
+// одноразовыми промокодами в момент активации кода приглашённым.
+model Referral {
+  id         String   @id @default(cuid())
+  gymId      String   @map("gym_id")
+  gym        Gym      @relation(fields: [gymId], references: [id])
+  referrerId String   @map("referrer_id")
+  referrer   Client   @relation("ReferralReferrer", fields: [referrerId], references: [id])
+  referredId String   @unique @map("referred_id")
+  referred   Client   @relation("ReferralReferred", fields: [referredId], references: [id])
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@unique([referrerId, referredId])
+  @@index([gymId])
+  @@map("referrals")
+}
+
+// Настройки реферальной программы — одна строка на зал, создаётся лениво
+// с дефолтами при первом обращении.
+model ReferralSettings {
+  gymId           String   @id @map("gym_id")
+  gym             Gym      @relation(fields: [gymId], references: [id])
+  enabled         Boolean  @default(true)
+  referrerPercent Int      @default(10) @map("referrer_percent") // % скидки пригласившему
+  referredPercent Int      @default(10) @map("referred_percent") // % скидки приглашённому
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("referral_settings")
+}
+
+// Корпоративный договор: компания, сотрудники которой тренируются в клубе.
+// Заказы клиентов-участников атрибутируются договору (Order.corporateAccountId)
+// и попадают в сводную ведомость; discountPercent — договорная скидка,
+// применяемая к заказам участников автоматически.
+model CorporateAccount {
+  id              String   @id @default(cuid())
+  gymId           String   @map("gym_id")
+  gym             Gym      @relation(fields: [gymId], references: [id])
+  name            String
+  contactPerson   String?  @map("contact_person")
+  contactPhone    String?  @map("contact_phone")
+  discountPercent Int      @default(0) @map("discount_percent") // 0..100
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  members CorporateMember[]
+  orders  Order[]
+
+  @@index([gymId])
+  @@map("corporate_accounts")
+}
+
+// Участник корпоративного договора — клиент клуба, состоящий в списке
+// сотрудников компании. Только участники могут оформлять заказы от имени
+// договора.
+model CorporateMember {
+  id                 String           @id @default(cuid())
+  corporateAccountId String           @map("corporate_account_id")
+  corporateAccount   CorporateAccount @relation(fields: [corporateAccountId], references: [id], onDelete: Cascade)
+  clientId           String           @map("client_id")
+  client             Client           @relation(fields: [clientId], references: [id])
+  addedAt            DateTime         @default(now()) @map("added_at")
+
+  @@unique([corporateAccountId, clientId])
+  @@index([clientId])
+  @@map("corporate_members")
+}
+
 // --- Финансы ---
 
 enum TransactionCategory {
@@ -992,30 +1119,30 @@ model Transaction {
 // Цены на абонементы и разовые услуги — раньше было захардкожено в
 // демо-версии, теперь настраивается на уровне зала.
 model MembershipPricing {
-  id             String @id @default(cuid())
-  gymId          String @unique @map("gym_id")
-  gym            Gym    @relation(fields: [gymId], references: [id])
-  single         Int
-  monthly        Int
-  pack10         Int
-  pack20         Int
+  id               String @id @default(cuid())
+  gymId            String @unique @map("gym_id")
+  gym              Gym    @relation(fields: [gymId], references: [id])
+  single           Int
+  monthly          Int
+  pack10           Int
+  pack20           Int
   // Сетевые варианты (P1.2) — действуют на всех точках сети, а не только
   // здесь, поэтому обычно дороже. Nullable: точка не обязана продавать
   // сетевой вариант вообще (null — только вариант "эта точка").
-  singleNetwork  Int?   @map("single_network")
-  monthlyNetwork Int?   @map("monthly_network")
-  pack10Network  Int?   @map("pack10_network")
-  pack20Network  Int?   @map("pack20_network")
-  personalSingle Int    @map("personal_single")
-  personalPack5  Int    @map("personal_pack5")
-  groupSingle    Int    @map("group_single")
-  groupMonthly   Int    @map("group_monthly")
+  singleNetwork    Int?   @map("single_network")
+  monthlyNetwork   Int?   @map("monthly_network")
+  pack10Network    Int?   @map("pack10_network")
+  pack20Network    Int?   @map("pack20_network")
+  personalSingle   Int    @map("personal_single")
+  personalPack5    Int    @map("personal_pack5")
+  groupSingle      Int    @map("group_single")
+  groupMonthly     Int    @map("group_monthly")
   // Тарифы сопровождения тренера (P4.2) — раньше цены были константой в
   // коде (2500/4900/15900 из демо-версии) и не настраивались точкой.
   // Дефолты совпадают со старой константой, миграция ничего не меняет.
-  escortBasic      Int @default(2500)  @map("escort_basic")
-  escortCoaching   Int @default(4900)  @map("escort_coaching")
-  escortIndividual Int @default(15900) @map("escort_individual")
+  escortBasic      Int    @default(2500) @map("escort_basic")
+  escortCoaching   Int    @default(4900) @map("escort_coaching")
+  escortIndividual Int    @default(15900) @map("escort_individual")
 
   @@map("membership_pricing")
 }
@@ -1393,17 +1520,17 @@ enum ConsentType {
 // createdAt. Не путать с P0.7 (Refund) — это другой журнал, здесь про
 // согласие на обработку данных, а не про деньги.
 model ConsentRecord {
-  id       String @id @default(cuid())
-  gymId    String @map("gym_id")
-  gym      Gym    @relation(fields: [gymId], references: [id])
+  id         String      @id @default(cuid())
+  gymId      String      @map("gym_id")
+  gym        Gym         @relation(fields: [gymId], references: [id])
   // Ровно один из clientId/trainerId заполнен — subject согласия либо
   // клиент, либо (с P1.4, тип STAFF_PDN) тренер как сотрудник. clientId
   // стал nullable только сейчас (P1.4); у всех существующих записей он
   // и так был заполнен, поэтому ослабление NOT NULL безопасно без бэкфилла.
-  clientId  String?     @map("client_id")
-  client    Client?     @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  trainerId String?     @map("trainer_id")
-  trainer   Trainer?    @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+  clientId   String?     @map("client_id")
+  client     Client?     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  trainerId  String?     @map("trainer_id")
+  trainer    Trainer?    @relation(fields: [trainerId], references: [id], onDelete: Cascade)
   type       ConsentType
   version    String // версия текста согласия на момент этой записи, например "2026-09-14"
   granted    Boolean // true — дано этой записью, false — отозвано этой записью
@@ -1474,11 +1601,11 @@ model GuardianChild {
 // при первом старте (в .env их нет намеренно: прод-ключи меняются реже
 // деплоя, а хранить их в БД проще, чем требовать ручную генерацию).
 model AppSetting {
-  id        String   @id @default("singleton")
-  vapidPublicKey  String @map("vapid_public_key")
-  vapidPrivateKey String @map("vapid_private_key")
-  vapidSubject    String @default("mailto:no-reply@siberiangym.ru") @map("vapid_subject")
-  createdAt DateTime @default(now()) @map("created_at")
+  id              String   @id @default("singleton")
+  vapidPublicKey  String   @map("vapid_public_key")
+  vapidPrivateKey String   @map("vapid_private_key")
+  vapidSubject    String   @default("mailto:no-reply@siberiangym.ru") @map("vapid_subject")
+  createdAt       DateTime @default(now()) @map("created_at")
 
   @@map("app_settings")
 }
@@ -1509,18 +1636,18 @@ enum NotificationChannel {
 }
 
 model ClientNotification {
-  id           String              @id @default(cuid())
-  clientId     String              @map("client_id")
-  client       Client              @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  id           String                @id @default(cuid())
+  clientId     String                @map("client_id")
+  client       Client                @relation(fields: [clientId], references: [id], onDelete: Cascade)
   kind         String // BOOKING_CREATED | REMINDER_1H | SLOT_CANCELLED ...
-  refId        String?             @map("ref_id")
+  refId        String?               @map("ref_id")
   title        String
   body         String
   channels     NotificationChannel[]
-  scheduledFor DateTime            @default(now()) @map("scheduled_for")
-  sentAt       DateTime?           @map("sent_at")
-  readAt       DateTime?           @map("read_at")
-  createdAt    DateTime            @default(now()) @map("created_at")
+  scheduledFor DateTime              @default(now()) @map("scheduled_for")
+  sentAt       DateTime?             @map("sent_at")
+  readAt       DateTime?             @map("read_at")
+  createdAt    DateTime              @default(now()) @map("created_at")
 
   @@unique([kind, refId, clientId])
   @@index([clientId, createdAt])
@@ -1544,13 +1671,13 @@ enum CheckinSource {
 // не пишем (это поток, а не административное действие — иначе журнал
 // изменений замусорится сотнями записей в день).
 model CheckinEntry {
-  id        String        @id @default(cuid())
-  gymId     String        @map("gym_id")
-  gym       Gym           @relation(fields: [gymId], references: [id])
-  clientId  String        @map("client_id")
-  client    Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  at        DateTime      @default(now())
-  source    CheckinSource @default(QR)
+  id       String        @id @default(cuid())
+  gymId    String        @map("gym_id")
+  gym      Gym           @relation(fields: [gymId], references: [id])
+  clientId String        @map("client_id")
+  client   Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  at       DateTime      @default(now())
+  source   CheckinSource @default(QR)
 
   @@index([gymId, at])
   @@index([clientId, at])

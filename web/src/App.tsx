@@ -41,6 +41,7 @@ import { MaintenancePage } from './features/ceo/MaintenancePage'
 import { ReportOffersPage } from './features/ceo/ReportOffersPage'
 import { ActivityLogPage } from './features/ceo/ActivityLogPage'
 import { GymsPage } from './features/ceo/GymsPage'
+import { SalesToolsPage } from './features/ceo/SalesToolsPage'
 import { SeriesPage } from './features/ceo/SeriesPage'
 
 const ROLE_HOME: Record<Role, string> = {
@@ -141,6 +142,7 @@ export default function App() {
             <Route path="clients" element={<ClientBasePage />} />
             <Route path="gyms" element={<GymsPage />} />
             <Route path="orders" element={<OrdersPage />} />
+            <Route path="sales" element={<SalesToolsPage />} />
             <Route path="stock" element={<StockPage />} />
             <Route path="maintenance" element={<MaintenancePage />} />
             <Route path="offers" element={<ReportOffersPage />} />

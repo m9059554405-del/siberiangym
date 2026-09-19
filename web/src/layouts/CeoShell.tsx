@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { BarChart3, Building2, CalendarClock, CalendarRange, LayoutDashboard, Megaphone, Package, Receipt, ScanLine, ScrollText, Users2, Wrench } from 'lucide-react'
+import { BarChart3, Building2, CalendarClock, CalendarRange, LayoutDashboard, Megaphone, Package, Receipt, ScanLine, ScrollText, TicketPercent, Users2, Wrench } from 'lucide-react'
 import clsx from 'clsx'
 
 const TABS = [
@@ -11,6 +11,7 @@ const TABS = [
   { to: '/ceo/clients', label: 'Клиентская база', icon: Users2, end: false },
   { to: '/ceo/gyms', label: 'Точки сети', icon: Building2, end: false },
   { to: '/ceo/orders', label: 'Заказы', icon: Receipt, end: false },
+  { to: '/ceo/sales', label: 'Продажи', icon: TicketPercent, end: false },
   { to: '/ceo/stock', label: 'Склад', icon: Package, end: false },
   { to: '/ceo/maintenance', label: 'Обслуживание', icon: Wrench, end: false },
   { to: '/ceo/offers', label: 'Рассылки', icon: Megaphone, end: false },
