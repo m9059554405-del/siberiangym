@@ -6,6 +6,7 @@ import { AuthService } from '../src/auth/auth.service';
 import { JwtAuthGuard } from '../src/auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../src/auth/guards/roles.guard';
 import { OrdersService } from '../src/orders/orders.service';
+import { PrismaService } from '../src/prisma/prisma.service';
 import { ScheduleService } from '../src/schedule/schedule.service';
 
 // P3.1: HTTP smoke/e2e критичного пути авторизации и заказа. По умолчанию
@@ -28,6 +29,8 @@ describe('Auth + orders HTTP (e2e smoke)', () => {
       .useValue({ login: jest.fn().mockResolvedValue({ accessToken: 'token', user: { id: 'user1', role: 'STAFF', gymId: 'gym1' } }) })
       .overrideProvider(OrdersService)
       .useValue(orders)
+      .overrideProvider(PrismaService)
+      .useValue({})
       .overrideProvider(ScheduleService)
       .useValue({})
       .overrideGuard(JwtAuthGuard)

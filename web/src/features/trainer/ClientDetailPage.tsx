@@ -53,6 +53,7 @@ export function ClientDetailPage() {
   const sortedMeasurements = useMemo(() => [...(measurements ?? [])].sort((a, b) => a.date.localeCompare(b.date)), [measurements])
   const latestMeasurement = sortedMeasurements[sortedMeasurements.length - 1]
   const sortedPhotos = useMemo(() => [...(photos ?? [])].sort((a, b) => b.date.localeCompare(a.date)), [photos])
+  const completedLabels = useMemo(() => new Set((logs ?? []).filter((l) => l.status === 'COMPLETED').map((l) => l.dayLabel)), [logs])
 
   const progressData = useMemo(() => {
     const freq = new Map<string, number>()
@@ -89,7 +90,6 @@ export function ClientDetailPage() {
 
   const hasCoaching = tariffUnlocksCoaching(client.tariff)
   const days = program?.days ?? []
-  const completedLabels = useMemo(() => new Set((logs ?? []).filter((l) => l.status === 'COMPLETED').map((l) => l.dayLabel)), [logs])
   const visibleDays = days.map((day, dayIndex) => ({ day, dayIndex })).filter(({ day }) => !completedLabels.has(day.label))
 
   function toPayload(list: ProgramDay[]) {

@@ -32,6 +32,14 @@ export function TrainerSchedulePage() {
   const weekStart = useMemo(() => mondayOf(new Date(Date.now() + weekOffset * 7 * DAY_MS)), [weekOffset])
   const weekDates = useMemo(() => Array.from({ length: 7 }, (_, i) => isoDate(new Date(weekStart.getTime() + i * DAY_MS))), [weekStart])
 
+  const monthMarkers = useMemo(() => {
+    const m: Record<string, number> = {}
+    if (!trainer) return m
+    for (const gc of groupClasses ?? []) if (gc.trainerId === trainer.id) m[gc.date.slice(0, 10)] = (m[gc.date.slice(0, 10)] ?? 0) + 1
+    for (const s of personalSlots ?? []) if (s.trainerId === trainer.id && s.status !== 'FREE') m[s.date.slice(0, 10)] = (m[s.date.slice(0, 10)] ?? 0) + 1
+    return m
+  }, [groupClasses, personalSlots, trainer])
+
   if (!trainer) return null
 
   function dayItemsFor(date: string) {
@@ -42,13 +50,6 @@ export function TrainerSchedulePage() {
 
   const dayItems = weekDates.map(dayItemsFor)
   const maxTotal = Math.max(1, ...dayItems.map((d) => d.total))
-
-  const monthMarkers = useMemo(() => {
-    const m: Record<string, number> = {}
-    for (const gc of groupClasses ?? []) if (gc.trainerId === trainer.id) m[gc.date.slice(0, 10)] = (m[gc.date.slice(0, 10)] ?? 0) + 1
-    for (const s of personalSlots ?? []) if (s.trainerId === trainer.id && s.status !== 'FREE') m[s.date.slice(0, 10)] = (m[s.date.slice(0, 10)] ?? 0) + 1
-    return m
-  }, [groupClasses, personalSlots, trainer.id])
 
   const selectedDayItems = dayItemsFor(selectedDate)
 

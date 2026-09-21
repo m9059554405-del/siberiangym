@@ -31,11 +31,11 @@ export function ExercisesPage() {
   const isSelf = client?.format === 'SELF'
 
   const myLogs = useMemo(() => [...(workoutLogs ?? [])].sort((a, b) => b.date.localeCompare(a.date)), [workoutLogs])
+  const completedLabels = useMemo(() => new Set(myLogs.filter((l) => l.status === 'COMPLETED').map((l) => l.dayLabel)), [myLogs])
 
   if (!client || !exercises) return null
 
   const days = program?.days ?? []
-  const completedLabels = useMemo(() => new Set(myLogs.filter((l) => l.status === 'COMPLETED').map((l) => l.dayLabel)), [myLogs])
   const visibleDays = days.map((day, dayIndex) => ({ day, dayIndex })).filter(({ day }) => !completedLabels.has(day.label))
   const completedLogs = myLogs.filter((l) => l.status === 'COMPLETED')
 
