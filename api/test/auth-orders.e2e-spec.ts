@@ -24,6 +24,7 @@ describe('Auth + orders HTTP (e2e smoke)', () => {
   };
 
   beforeAll(async () => {
+    process.env.JWT_SECRET ??= 'e2e-test-secret';
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(AuthService)
       .useValue({ login: jest.fn().mockResolvedValue({ accessToken: 'token', user: { id: 'user1', role: 'STAFF', gymId: 'gym1' } }) })
