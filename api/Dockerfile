@@ -33,12 +33,19 @@ RUN npx tsc prisma/seed.ts prisma/exercise-library.ts prisma/emergency-ceo-reset
 FROM node:22.11.0-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+# curl нужен healthcheck'у из docker-compose.prod.yml (curl -fsS .../api/health)
+# — в node:*-slim его нет, без него контейнер вечно помечался unhealthy.
+RUN apt-get update -y && apt-get install -y openssl curl && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
 COPY prisma ./prisma
 RUN npm ci --omit=dev
 RUN npx prisma generate
+
+# P3.18: pm2-runtime запускает API по ecosystem.config.js (CMD ниже) —
+# раньше файл не копировался в runner-образ, и контейнер падал на старте
+# с ENOENT: /app/ecosystem.config.js (PM2 successfully stopped в цикле).
+COPY ecosystem.config.js ./
 
 COPY --from=builder /app/dist ./dist
 
