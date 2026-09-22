@@ -19,8 +19,12 @@ function makeContext(user: unknown) {
 }
 
 describe('RolesGuard', () => {
-  it('эндпоинт без @Roles — доступ разрешён любой авторизованной роли', () => {
+  it('эндпоинт без @Roles — доступ разрешён обычной авторизованной роли', () => {
     expect(makeGuard(undefined).canActivate(makeContext({ sub: 'u', gymId: 'g', role: Role.CLIENT }))).toBe(true);
+  });
+
+  it('SYSADMIN без явного @Roles(Role.SYSADMIN) не получает доступ к бизнес-эндпоинтам', () => {
+    expect(() => makeGuard(undefined).canActivate(makeContext({ sub: 'u', gymId: 'g', role: Role.SYSADMIN }))).toThrow(ForbiddenException);
   });
 
   it('роль в списке — доступ разрешён', () => {
