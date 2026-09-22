@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
-import type { Gym, WorkingHours } from '../types'
+import type { Gym, Hall, WorkingHours } from '../types'
 
 // Точки своей сети (P1.1) — виден только CEO (эндпоинт и так гейтится
 // ролью на бэкенде), список используется переключателем точки в шапке.
@@ -88,5 +88,54 @@ export function useReplaceWorkingHours() {
     mutationFn: (items: { weekday: number; open: string; close: string }[]) =>
       api.put<WorkingHours[]>('/gyms/working-hours', { items }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['gyms', 'working-hours'] }),
+  })
+}
+
+// --- Залы точек сети (заявка клуба) ---
+// Точка всегда имеет хотя бы один зал; создание/удаление залов,
+// привязка тренеров и цены — только CEO.
+
+export interface HallPriceInput {
+  label: string
+  amount: number
+}
+
+export interface HallInput {
+  name: string
+  kind: string
+  trainerIds?: string[]
+  prices?: HallPriceInput[]
+}
+
+export function useGymHalls(gymId: string | undefined) {
+  return useQuery({
+    queryKey: ['halls', gymId],
+    queryFn: () => api.get<Hall[]>(`/halls?gymId=${gymId}`),
+    enabled: !!gymId,
+  })
+}
+
+export function useCreateHall() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (vars: { gymId: string; data: HallInput }) => api.post<Hall>('/halls', { gymId: vars.gymId, ...vars.data }),
+    onSuccess: (_hall, vars) => qc.invalidateQueries({ queryKey: ['halls', vars.gymId] }),
+  })
+}
+
+export function useUpdateHall() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (vars: { hallId: string; gymId: string; data: Partial<HallInput> }) =>
+      api.patch<Hall>(`/halls/${vars.hallId}`, vars.data),
+    onSuccess: (_hall, vars) => qc.invalidateQueries({ queryKey: ['halls', vars.gymId] }),
+  })
+}
+
+export function useDeleteHall() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (vars: { hallId: string; gymId: string }) => api.delete(`/halls/${vars.hallId}`),
+    onSuccess: (_res, vars) => qc.invalidateQueries({ queryKey: ['halls', vars.gymId] }),
   })
 }

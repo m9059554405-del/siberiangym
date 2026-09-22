@@ -71,6 +71,12 @@ export class GymsService {
       const created = await tx.gym.create({
         data: { networkId, name: dto.name, selfTrainingMinAge: dto.selfTrainingMinAge ?? 18 },
       });
+      // Точка без зала существовать не может (заявка клуба) — каждая
+      // новая точка стартует с дефолтным тренажёрным залом; CEO потом
+      // добавляет залы единоборств/тенниса и любые другие в UI точек.
+      await tx.hall.create({
+        data: { gymId: created.id, name: 'Тренажерный зал', kind: 'Тренажерный зал' },
+      });
       if (sourcePricing) {
         const { id: _id, gymId: _gymId, ...priceFields } = sourcePricing;
         await tx.membershipPricing.create({ data: { gymId: created.id, ...priceFields } });
@@ -238,6 +244,8 @@ export class GymsService {
       await tx.cleaningZone.deleteMany({ where: { gymId } });
       await tx.gymWorkingHours.deleteMany({ where: { gymId } });
       await tx.trainerGym.deleteMany({ where: { gymId } });
+      // Залы — тоже конфиг точки (каскад удаляет цены и привязки тренеров).
+      await tx.hall.deleteMany({ where: { gymId } });
       await tx.gym.delete({ where: { id: gymId } });
     });
     return { ok: true };

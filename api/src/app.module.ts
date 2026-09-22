@@ -30,6 +30,7 @@ import { ConsentsModule } from './consents/consents.module';
 import { StorageModule } from './storage/storage.module';
 import { GuardiansModule } from './guardians/guardians.module';
 import { GymsModule } from './gyms/gyms.module';
+import { HallsModule } from './halls/halls.module';
 import { CheckinsModule } from './checkins/checkins.module';
 import { SmsModule } from './sms/sms.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -89,6 +90,7 @@ import { BugReportsModule } from './bug-reports/bug-reports.module';
     StorageModule,
     GuardiansModule,
     GymsModule,
+    HallsModule,
     CheckinsModule,
     SmsModule,
     NotificationsModule,

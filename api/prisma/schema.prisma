@@ -101,6 +101,7 @@ model Gym {
   workingHours       GymWorkingHours[]
   cleaningZones      CleaningZone[]
   bugReports         BugReport[]
+  halls              Hall[]
 
   // P4.4: инструменты продаж точки — промокоды, реферальная программа,
   // корпоративные договоры.
@@ -127,6 +128,57 @@ model GymWorkingHours {
 
   @@unique([gymId, weekday])
   @@map("gym_working_hours")
+}
+
+// --- Залы внутри точки сети (заявка клуба) ---
+//
+// Точка сети не существует без залов: создание точки (и миграция для
+// существующих) всегда даёт ей минимум один зал. Тип зала — свободная
+// строка (пресеты «Тренажерный зал»/«Зал единоборств»/«Зал тенниса»
+// живут на фронтенде), CEO может завести любой. Групповые занятия пока
+// ссылаются на зал строкой zone (GroupClass.zone) — FK не заводится,
+// чтобы не ломать существующее расписание.
+model Hall {
+  id        String   @id @default(cuid())
+  gymId     String   @map("gym_id")
+  gym       Gym      @relation(fields: [gymId], references: [id])
+  name      String
+  kind      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  trainers HallTrainer[]
+  prices   HallPrice[]
+
+  @@index([gymId])
+  @@map("halls")
+}
+
+// Привязка тренера к залу точки: кто и в каком зале ведёт занятия.
+// Дубликаты отсечены уникальностью пары; отвязка — удалением строки.
+model HallTrainer {
+  id        String  @id @default(cuid())
+  hallId    String  @map("hall_id")
+  hall      Hall    @relation(fields: [hallId], references: [id], onDelete: Cascade)
+  trainerId String  @map("trainer_id")
+  trainer   Trainer @relation(fields: [trainerId], references: [id], onDelete: Cascade)
+
+  @@unique([hallId, trainerId])
+  @@index([trainerId])
+  @@map("hall_trainers")
+}
+
+// Цены зала — произвольные строки с суммой в рублях (например «Час
+// аренды — 1000»): набор настраивает CEO, фиксированных полей нет.
+model HallPrice {
+  id     String @id @default(cuid())
+  hallId String @map("hall_id")
+  hall   Hall   @relation(fields: [hallId], references: [id], onDelete: Cascade)
+  label  String
+  amount Int
+
+  @@index([hallId])
+  @@map("hall_prices")
 }
 
 // --- Авторизация ---
@@ -475,6 +527,9 @@ model Trainer {
   // логин), эта связь — только для точек СВЕРХ неё. Тренер без единой
   // записи здесь всё равно работает как раньше (только на своей точке).
   additionalGyms    TrainerGym[]
+  // Залы точек сети, где тренер ведёт занятия (заявка клуба): конкретный
+  // зал внутри точки — тренажёрный, единоборств, тенниса и т.д.
+  halls             HallTrainer[]
 
   createdAt DateTime @default(now()) @map("created_at")
 

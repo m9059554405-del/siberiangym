@@ -575,6 +575,32 @@ export interface Gym {
   createdAt: string
 }
 
+// Залы внутри точки сети (заявка клуба): тип — свободная строка
+// (тренажёрный, единоборств, тенниса, любой свой), тренеры привязаны
+// из работающих на точке, цены — произвольные строки с суммой.
+export interface HallTrainerLink {
+  id: string
+  trainerId: string
+  trainer: { id: string; name: string; specialization: string; avatarHue: number }
+}
+
+export interface HallPrice {
+  id: string
+  label: string
+  amount: number
+}
+
+export interface Hall {
+  id: string
+  gymId: string
+  name: string
+  kind: string
+  createdAt: string
+  updatedAt: string
+  trainers: HallTrainerLink[]
+  prices: HallPrice[]
+}
+
 export interface DirectorMessage {
   id: string
   clientId: string

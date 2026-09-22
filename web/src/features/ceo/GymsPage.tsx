@@ -6,6 +6,7 @@ import { useAssignTrainerGym, useTransactionSummary, useUnassignTrainerGym } fro
 import { useCreateGym, useDeleteGym, useMoveStaff, useNetworkGyms, useNetworkStaff, useReplaceWorkingHours, useSetStaffActive, useUpdateGym, useWorkingHours } from '../../hooks/useGymsApi'
 import { useAuthStore } from '../../store/useAuthStore'
 import { AddStaffModal } from './AddStaffModal'
+import { HallsCard } from './HallsCard'
 import { Badge, Button, Card, SectionTitle } from '../../components/ui/Primitives'
 import { Modal } from '../../components/ui/Modal'
 import { api, ApiError } from '../../lib/api'
@@ -356,7 +357,7 @@ export function GymsPage() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-bold">Точки сети</h1>
-          <p className="text-sm text-[var(--text-muted)]">Создание, переименование и удаление площадок, тренеры и администраторы точек</p>
+          <p className="text-sm text-[var(--text-muted)]">Создание, переименование и удаление площадок, залы точек, тренеры и администраторы точек</p>
         </div>
         <Button size="sm" onClick={() => setCreateOpen(true)}>
           <Plus size={14} /> Новая точка
@@ -371,7 +372,8 @@ export function GymsPage() {
           const s = stats.get(g.id) ?? { clients: 0, trainers: 0, staff: 0, revenue: 0 }
           const isActive = g.id === currentGymId
           return (
-            <Card key={g.id}>
+            <div key={g.id} className="flex flex-col">
+            <Card>
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <Building2 size={18} className="text-[var(--text-faint)]" />
@@ -416,6 +418,8 @@ export function GymsPage() {
                 </Button>
               </div>
             </Card>
+            <HallsCard gym={g} trainers={trainers} />
+            </div>
           )
         })}
       </div>
