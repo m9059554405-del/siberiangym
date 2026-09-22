@@ -39,6 +39,7 @@ import { PaymentsModule } from './payments/payments.module';
 import { PromoModule } from './promo/promo.module';
 import { ReferralsModule } from './referrals/referrals.module';
 import { CorporateModule } from './corporate/corporate.module';
+import { BugReportsModule } from './bug-reports/bug-reports.module';
 
 @Module({
   imports: [
@@ -97,6 +98,7 @@ import { CorporateModule } from './corporate/corporate.module';
     PromoModule,
     ReferralsModule,
     CorporateModule,
+    BugReportsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

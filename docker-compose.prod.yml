@@ -97,6 +97,8 @@ services:
       SMTP_FROM: ${SMTP_FROM:-SiberianGym <no-reply@siberiangym.ru>}
       SEED_CEO_EMAIL: ${SEED_CEO_EMAIL:-ceo@siberiangym.ru}
       SEED_CEO_PASSWORD: ${SEED_CEO_PASSWORD}
+      SEED_SYSADMIN_EMAIL: ${SEED_SYSADMIN_EMAIL:-sysadmin@siberiangym.ru}
+      SEED_SYSADMIN_PASSWORD: ${SEED_SYSADMIN_PASSWORD}
       GYM_LEGAL_NAME: ${GYM_LEGAL_NAME:-}
       GYM_CLUB_NAME: ${GYM_CLUB_NAME:-SiberianGym}
       # P3.11: часовой пояс клуба — «сегодня» в сроках абонементов,

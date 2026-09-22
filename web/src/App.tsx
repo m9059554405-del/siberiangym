@@ -43,12 +43,14 @@ import { ActivityLogPage } from './features/ceo/ActivityLogPage'
 import { GymsPage } from './features/ceo/GymsPage'
 import { SalesToolsPage } from './features/ceo/SalesToolsPage'
 import { SeriesPage } from './features/ceo/SeriesPage'
+import { BugReportsPage } from './features/admin/BugReportsPage'
 
 const ROLE_HOME: Record<Role, string> = {
   CLIENT: '/client/payments',
   TRAINER: '/trainer',
   STAFF: '/staff',
   CEO: '/ceo',
+  SYSADMIN: '/admin',
 }
 
 function RequireRole({ role, children }: { role: Role; children: React.ReactNode }) {
@@ -124,6 +126,15 @@ export default function App() {
             <Route path="equipment" element={<EquipmentPage />} />
             <Route path="stock" element={<StockPage />} />
           </Route>
+
+          <Route
+            path="/admin"
+            element={
+              <RequireRole role="SYSADMIN">
+                <BugReportsPage />
+              </RequireRole>
+            }
+          />
 
           <Route
             path="/ceo"

@@ -4,6 +4,7 @@ import { Bell, Briefcase, Dumbbell, LogOut, ShieldCheck, UserRound, Users } from
 import { api } from '../lib/api'
 import { useAuthStore, type Role } from '../store/useAuthStore'
 import { GymSwitcher } from '../components/GymSwitcher'
+import { BugReportButton } from '../components/BugReportButton'
 import { useNotifications } from '../hooks/useClientApi'
 
 const ROLE_LABEL: Record<Role, { label: string; icon: typeof UserRound }> = {
@@ -11,6 +12,7 @@ const ROLE_LABEL: Record<Role, { label: string; icon: typeof UserRound }> = {
   TRAINER: { label: 'Тренер', icon: Users },
   CEO: { label: 'CEO', icon: ShieldCheck },
   STAFF: { label: 'Администратор', icon: Briefcase },
+  SYSADMIN: { label: 'Системный администратор', icon: ShieldCheck },
 }
 
 export function RootLayout() {
@@ -93,6 +95,7 @@ export function RootLayout() {
       <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 pb-10 pt-4">
         <Outlet />
       </main>
+      {user.role !== 'SYSADMIN' && <BugReportButton />}
     </div>
   )
 }

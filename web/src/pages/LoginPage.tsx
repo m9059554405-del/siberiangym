@@ -10,6 +10,7 @@ const ROLE_HOME: Record<string, string> = {
   TRAINER: '/trainer',
   STAFF: '/staff',
   CEO: '/ceo',
+  SYSADMIN: '/admin',
 }
 
 export function LoginPage() {

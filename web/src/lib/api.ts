@@ -52,6 +52,15 @@ async function upload<T>(path: string, form: FormData): Promise<T> {
   return handleResponse<T>(res)
 }
 
+async function download(path: string): Promise<Blob> {
+  const token = useAuthStore.getState().token
+  const res = await fetch(`${BASE}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  })
+  if (!res.ok) await handleResponse(res)
+  return res.blob()
+}
+
 export const api = {
   get: <T>(path: string) => request<T>('GET', path),
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, body ?? {}),
@@ -59,4 +68,5 @@ export const api = {
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body ?? {}),
   delete: <T>(path: string) => request<T>('DELETE', path),
   upload: <T>(path: string, form: FormData) => upload<T>(path, form),
+  download,
 }

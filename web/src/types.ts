@@ -16,6 +16,24 @@ export type ProgressPhotoKind = 'FOOD' | 'BODY'
 export type MealType = 'BREAKFAST' | 'LUNCH' | 'DINNER' | 'OTHER'
 export type TransactionCategory = 'MEMBERSHIP' | 'PERSONAL' | 'GROUP' | 'ANCILLARY' | 'REFUND'
 export type OfferAudience = 'ALL' | 'EXPIRING_SOON' | 'TOP_PERFORMERS'
+export type BugReportStatus = 'NEW' | 'IN_PROGRESS' | 'RESOLVED' | 'REJECTED'
+
+export interface BugReport {
+  id: string
+  gymId: string
+  problem: string
+  expected: string
+  screenshotMime: string | null
+  telemetry: Record<string, unknown>
+  status: BugReportStatus
+  resolutionNote: string | null
+  resolvedAt: string | null
+  createdAt: string
+  updatedAt: string
+  gym: { id: string; name: string }
+  reporter: { id: string; email: string | null; name: string | null; role: string }
+  resolvedBy: { id: string; email: string | null; name: string | null } | null
+}
 
 export type OrderStatus = 'DRAFT' | 'AWAITING_PAYMENT' | 'PAID' | 'CANCELLED' | 'EXPIRED'
 export type OrderPaymentMethod = 'CASH' | 'CARD_ONLINE'

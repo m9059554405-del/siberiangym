@@ -46,21 +46,21 @@ export class AuthController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.CEO, Role.STAFF)
+  @Roles(Role.CEO, Role.STAFF, Role.SYSADMIN)
   @Post('2fa/setup')
   startTwoFactorSetup(@CurrentUser() actor: JwtPayload) {
     return this.auth.startTwoFactorSetup(actor);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.CEO, Role.STAFF)
+  @Roles(Role.CEO, Role.STAFF, Role.SYSADMIN)
   @Post('2fa/confirm')
   confirmTwoFactorSetup(@Body() dto: ConfirmTwoFactorDto, @CurrentUser() actor: JwtPayload) {
     return this.auth.confirmTwoFactorSetup(actor, dto.code);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.CEO, Role.STAFF)
+  @Roles(Role.CEO, Role.STAFF, Role.SYSADMIN)
   @Post('2fa/disable')
   disableTwoFactor(@Body() dto: ConfirmTwoFactorDto, @CurrentUser() actor: JwtPayload) {
     return this.auth.disableTwoFactor(actor, dto.code);

@@ -11,6 +11,8 @@ const prisma = new PrismaClient();
 
 const CEO_EMAIL = process.env.SEED_CEO_EMAIL ?? 'ceo@siberiangym.ru';
 const CEO_PASSWORD = process.env.SEED_CEO_PASSWORD ?? 'change-me-12345';
+const SYSADMIN_EMAIL = process.env.SEED_SYSADMIN_EMAIL ?? 'sysadmin@siberiangym.ru';
+const SYSADMIN_PASSWORD = process.env.SEED_SYSADMIN_PASSWORD ?? 'change-me-sysadmin-12345';
 
 async function main() {
   let gym = await prisma.gym.findFirst({ where: { name: 'SiberianGym' } });
@@ -31,6 +33,17 @@ async function main() {
     console.log(`Создана сеть, зал и CEO: ${CEO_EMAIL} / ${CEO_PASSWORD} — смените пароль после первого входа.`);
   } else {
     console.log(`Зал SiberianGym уже существует, пропускаю создание сети/зала/CEO.`);
+  }
+
+  const sysadmin = await prisma.user.findUnique({ where: { email: SYSADMIN_EMAIL } });
+  if (!sysadmin) {
+    const passwordHash = await bcrypt.hash(SYSADMIN_PASSWORD, 12);
+    await prisma.user.create({
+      data: { gymId: gym.id, email: SYSADMIN_EMAIL, passwordHash, role: 'SYSADMIN' },
+    });
+    console.log(`Создан системный администратор: ${SYSADMIN_EMAIL} / ${SYSADMIN_PASSWORD} — смените пароль после первого входа.`);
+  } else {
+    console.log(`Системный администратор ${SYSADMIN_EMAIL} уже существует, пропускаю создание.`);
   }
 
   const existingPricing = await prisma.membershipPricing.findUnique({ where: { gymId: gym.id } });

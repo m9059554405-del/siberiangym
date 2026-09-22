@@ -44,7 +44,7 @@ export class AuthService {
 
   async login(email: string, password: string) {
     const user = await this.validateUser(email, password);
-    if ((user.role === Role.CEO || user.role === Role.STAFF) && user.twoFactorEnabled && user.twoFactorSecret) {
+    if ((user.role === Role.CEO || user.role === Role.STAFF || user.role === Role.SYSADMIN) && user.twoFactorEnabled && user.twoFactorSecret) {
       const challengeToken = this.jwt.sign({ sub: user.id, purpose: '2fa-login' }, { expiresIn: 300 });
       return { requiresTwoFactor: true, challengeToken };
     }
@@ -84,7 +84,7 @@ export class AuthService {
   }
 
   async startTwoFactorSetup(actor: JwtPayload) {
-    if (actor.role !== Role.CEO && actor.role !== Role.STAFF) throw new ForbiddenException('2FA доступна только CEO и STAFF');
+    if (actor.role !== Role.CEO && actor.role !== Role.STAFF && actor.role !== Role.SYSADMIN) throw new ForbiddenException('2FA доступна только CEO, STAFF и SYSADMIN');
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: actor.sub } });
     const secret = generateTotpSecret();
     await this.prisma.user.update({ where: { id: actor.sub }, data: { twoFactorPendingSecret: secret } });
@@ -92,7 +92,7 @@ export class AuthService {
   }
 
   async confirmTwoFactorSetup(actor: JwtPayload, code: string) {
-    if (actor.role !== Role.CEO && actor.role !== Role.STAFF) throw new ForbiddenException('2FA доступна только CEO и STAFF');
+    if (actor.role !== Role.CEO && actor.role !== Role.STAFF && actor.role !== Role.SYSADMIN) throw new ForbiddenException('2FA доступна только CEO, STAFF и SYSADMIN');
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: actor.sub } });
     if (!user.twoFactorPendingSecret || !verifyTotp(user.twoFactorPendingSecret, code)) throw new BadRequestException('Неверный код приложения-аутентификатора');
     await this.prisma.user.update({ where: { id: actor.sub }, data: { twoFactorSecret: user.twoFactorPendingSecret, twoFactorPendingSecret: null, twoFactorEnabled: true } });
@@ -100,7 +100,7 @@ export class AuthService {
   }
 
   async disableTwoFactor(actor: JwtPayload, code: string) {
-    if (actor.role !== Role.CEO && actor.role !== Role.STAFF) throw new ForbiddenException('2FA доступна только CEO и STAFF');
+    if (actor.role !== Role.CEO && actor.role !== Role.STAFF && actor.role !== Role.SYSADMIN) throw new ForbiddenException('2FA доступна только CEO, STAFF и SYSADMIN');
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: actor.sub } });
     if (!user.twoFactorEnabled || !user.twoFactorSecret || !verifyTotp(user.twoFactorSecret, code)) throw new BadRequestException('Неверный код приложения-аутентификатора');
     // Выключение 2FA — подозрительное действие: отзываем все сессии (P3.8),

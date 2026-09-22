@@ -100,6 +100,7 @@ model Gym {
   leads              Lead[]
   workingHours       GymWorkingHours[]
   cleaningZones      CleaningZone[]
+  bugReports         BugReport[]
 
   // P4.4: инструменты продаж точки — промокоды, реферальная программа,
   // корпоративные договоры.
@@ -135,6 +136,7 @@ enum Role {
   TRAINER
   CEO
   STAFF // "Администратор" в демо-версии — операционная роль (ресепшн/склад/ППР)
+  SYSADMIN
 }
 
 // Учётная запись для входа. НЕ хранит бизнес-данные клиента/тренера —
@@ -171,6 +173,8 @@ model User {
   clientProfile       Client?
   trainerProfile      Trainer?
   passwordResetTokens PasswordResetToken[]
+  bugReports          BugReport[]          @relation("BugReportReporter")
+  resolvedBugReports  BugReport[]          @relation("BugReportResolver")
 
   @@index([gymId])
   @@map("users")
@@ -187,6 +191,38 @@ model PasswordResetToken {
 
   @@index([userId, expiresAt])
   @@map("password_reset_tokens")
+}
+
+enum BugReportStatus {
+  NEW
+  IN_PROGRESS
+  RESOLVED
+  REJECTED
+}
+
+model BugReport {
+  id             String          @id @default(cuid())
+  gymId          String          @map("gym_id")
+  gym            Gym             @relation(fields: [gymId], references: [id])
+  reporterId     String          @map("reporter_id")
+  reporter       User            @relation("BugReportReporter", fields: [reporterId], references: [id])
+  problem        String
+  expected       String
+  screenshot     Bytes?          @db.ByteA
+  screenshotMime String?         @map("screenshot_mime")
+  telemetry      Json
+  status         BugReportStatus @default(NEW)
+  resolutionNote String?         @map("resolution_note")
+  resolvedById   String?         @map("resolved_by_id")
+  resolvedBy     User?           @relation("BugReportResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+  resolvedAt     DateTime?       @map("resolved_at")
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+
+  @@index([status, createdAt])
+  @@index([reporterId, createdAt])
+  @@index([gymId, createdAt])
+  @@map("bug_reports")
 }
 
 // --- Клиент ---
@@ -1001,12 +1037,12 @@ model PromoCode {
   amountOff  Int?      @map("amount_off") // рубли
   validFrom  DateTime? @map("valid_from") // NULL = действует с момента создания
   validUntil DateTime? @map("valid_until") // NULL = бессрочно
-  maxUses     Int       @default(1) @map("max_uses")
-  usedCount   Int       @default(0) @map("used_count")
-  isActive    Boolean   @default(true) @map("is_active")
-  clientId    String?   @map("client_id")
-  client      Client?   @relation(fields: [clientId], references: [id])
-  createdAt   DateTime  @default(now()) @map("created_at")
+  maxUses    Int       @default(1) @map("max_uses")
+  usedCount  Int       @default(0) @map("used_count")
+  isActive   Boolean   @default(true) @map("is_active")
+  clientId   String?   @map("client_id")
+  client     Client?   @relation(fields: [clientId], references: [id])
+  createdAt  DateTime  @default(now()) @map("created_at")
 
   orders Order[]
 
