@@ -13,6 +13,7 @@
     "prisma:seed": "ts-node prisma/seed.ts",
     "prisma:network-migration": "ts-node prisma/network-migration.ts",
     "prisma:emergency-ceo-reset": "ts-node prisma/emergency-ceo-reset.ts",
+    "prisma:demo-data": "ts-node prisma/demo-data.ts",
     "test": "jest --runInBand",
     "test:watch": "jest --watch",
     "test:e2e": "jest --config jest.e2e.config.js --runInBand",

@@ -1,4 +1,5 @@
-import { PrismaClient, Trainer, Client, CatalogItem, Membership } from '@prisma/client'
+import { PrismaClient, Trainer, Client, CatalogItem, Membership, User } from '@prisma/client'
+import * as bcrypt from 'bcrypt'
 
 const prisma = new PrismaClient()
 
@@ -20,6 +21,22 @@ const DAY = 86400000
 const now = new Date()
 const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
 const dayAt = (offset: number) => new Date(today.getTime() + offset * DAY)
+
+// Точка выбирается явно: DEMO_GYM_ID надёжнее (имена не уникальны), но для
+// ручного прогона достаточно DEMO_GYM_NAME. Дефолт — историческое имя
+// демо-точки из seed.ts.
+const gymWhere = process.env.DEMO_GYM_ID
+  ? { id: process.env.DEMO_GYM_ID }
+  : { name: process.env.DEMO_GYM_NAME ?? 'SiberianGym' }
+
+// Демо-администраторы: login-учётки STAFF (пароль общий у трёх демо-аккаунтов,
+// выдаётся разработчиком/демонстратором вручную — в БД только bcrypt-хэш).
+const STAFF_PASSWORD = 'Staff2026!Gym'
+const STAFF_DEFS = [
+  { email: 'staff1@siberiangym.ru', name: 'Ирина Воронцова' },
+  { email: 'staff2@siberiangym.ru', name: 'Павел Сазонов' },
+  { email: 'staff3@siberiangym.ru', name: 'Дина Абрамова' },
+]
 
 const TRAINER_DEFS = [
   { name: 'Максим Ветров', spec: 'Силовая подготовка', emp: 'EMPLOYEE', exp: 8, price: 2500, share: 40, hue: 214, hours: [[1, 9, 18], [3, 9, 18], [5, 9, 18], [2, 12, 21], [4, 12, 21], [6, 10, 16]] },
@@ -65,9 +82,72 @@ const SLOT_HOUR_POOLS = [[10, 14, 18, 20], [11, 15, 19, 12], [12, 16, 19, 10], [
 const MEMBERSHIP_LABEL: Record<string, string> = { MONTHLY: 'Месячный', PACK10: '10 занятий', PACK20: '20 занятий', SINGLE: 'Разовый' }
 const MEMBERSHIP_PRICE: Record<string, number> = { MONTHLY: 4500, PACK10: 8000, PACK20: 14000, SINGLE: 900 }
 
+// Зоны клининга — тот же набор из 7, что GymsService.create создаёт новой
+// точке (P4.2): скрипт пересоздаёт их, чтобы чек-листы всегда ссылались на
+// актуальные зоны демо-точки.
+const CLEANING_ZONE_NAMES = ['Пол', 'Освещение', 'Поверхности', 'Зеркала', 'Санузлы', 'Шкафчики', 'Окна']
+
+// Объекты ППР/ремонта: часть с просроченным nextServiceDate (отрицательный
+// nextOff), чтобы панель ремонта показывала просрочку.
+const EQUIPMENT_DEFS: Array<{ name: string; category: 'LIGHTING' | 'RESTROOMS' | 'LOCKERS' | 'AC' | 'FRIDGES' | 'GYM_EQUIPMENT'; zone: string; interval: number; lastOff: number; nextOff: number; responsible: string; warrantyOff?: number }> = [
+  { name: 'Светильники потолочные (основной зал)', category: 'LIGHTING', zone: 'Тренажёрный зал', interval: 180, lastOff: -160, nextOff: 20, responsible: 'Ирина Воронцова' },
+  { name: 'Светильники раздевалок', category: 'LIGHTING', zone: 'Раздевалки', interval: 180, lastOff: -185, nextOff: -5, responsible: 'Ирина Воронцова' },
+  { name: 'Кондиционер канальный №1', category: 'AC', zone: 'Тренажёрный зал', interval: 90, lastOff: -102, nextOff: -12, responsible: 'ООО «Климат-Сервис»' },
+  { name: 'Кондиционер канальный №2', category: 'AC', zone: 'Кардио-зона', interval: 90, lastOff: -49, nextOff: 41, responsible: 'ООО «Климат-Сервис»' },
+  { name: 'Приточно-вытяжная вентиляция', category: 'AC', zone: 'Весь зал', interval: 90, lastOff: -83, nextOff: 7, responsible: 'ООО «Климат-Сервис»' },
+  { name: 'Холодильник витрины (ресепшн)', category: 'FRIDGES', zone: 'Ресепшн', interval: 120, lastOff: -87, nextOff: 33, responsible: 'Павел Сазонов', warrantyOff: 400 },
+  { name: 'Кулер воды', category: 'FRIDGES', zone: 'Ресепшн', interval: 90, lastOff: -93, nextOff: -3, responsible: 'Павел Сазонов' },
+  { name: 'Беговая дорожка №1', category: 'GYM_EQUIPMENT', zone: 'Кардио-зона', interval: 60, lastOff: -50, nextOff: 10, responsible: 'ООО «СпортСервис»' },
+  { name: 'Скамья Скотта', category: 'GYM_EQUIPMENT', zone: 'Тренажёрный зал', interval: 120, lastOff: -65, nextOff: 55, responsible: 'ООО «СпортСервис»' },
+  { name: 'Рама Хаммера', category: 'GYM_EQUIPMENT', zone: 'Тяжёлая зона', interval: 90, lastOff: -40, nextOff: 50, responsible: 'ООО «СпортСервис»', warrantyOff: 700 },
+  { name: 'Двери шкафчиков (банк A)', category: 'LOCKERS', zone: 'Раздевалки', interval: 180, lastOff: -90, nextOff: 90, responsible: 'Павел Сазонов' },
+  { name: 'Смесители санузлов', category: 'RESTROOMS', zone: 'Санузлы', interval: 90, lastOff: -75, nextOff: 15, responsible: 'Дина Абрамова' },
+]
+
+const EFFORTS = ['WARMUP', 'EASY', 'MEDIUM', 'HARD', 'VERY_HARD'] as const
+const RESTS = [60, 90, 120, 180]
+
+type Purchase = {
+  date: Date
+  amount: number
+  category: 'MEMBERSHIP' | 'PERSONAL' | 'GROUP' | 'ANCILLARY'
+  clientId: string
+  trainerId?: string
+  description: string
+  lineType: 'MEMBERSHIP_PURCHASE' | 'PERSONAL_SLOT_BOOKING' | 'GROUP_CLASS_BOOKING' | 'STOCK_PURCHASE'
+  refId?: string
+  meta?: Record<string, unknown>
+}
+
+function receiptRawFor(amount: number, seq: number, date: Date) {
+  const fn = '9999076543210001'
+  const i = String(1370 + seq)
+  const fp = String(100000 + ((seq * 7919 + 1043) % 900000))
+  const t = date.toISOString().replace(/[-:]/g, '').slice(0, 13)
+  return {
+    receiptRaw: `t=${t}&s=${amount}&fn=${fn}&i=${i}&fp=${fp}&n=1`,
+    receiptFn: fn,
+    receiptI: i,
+    receiptFp: fp,
+  }
+}
+
 async function main() {
-  const gym = await prisma.gym.findFirst({ where: { name: 'SiberianGym' } })
-  if (!gym) throw new Error('Зал SiberianGym не найден — сначала запустите prisma:seed')
+  const gym = await prisma.gym.findFirst({ where: gymWhere })
+  if (!gym) throw new Error('Точка не найдена — задайте DEMO_GYM_ID/DEMO_GYM_NAME или сначала запустите prisma:seed')
+
+  // --- Демо-администраторы (STAFF): upsert по email, чтобы повторные прогоны
+  // не плодили учётки и не перехэшировали пароль.
+  const staffHash = await bcrypt.hash(STAFF_PASSWORD, 12)
+  const staffUsers: User[] = []
+  for (const s of STAFF_DEFS) {
+    staffUsers.push(await prisma.user.upsert({
+      where: { email: s.email },
+      create: { gymId: gym.id, email: s.email, name: s.name, passwordHash: staffHash, role: 'STAFF' },
+      update: { name: s.name, isActive: true },
+    }))
+  }
+  const cashier = staffUsers[0]
 
   await prisma.groupClassBooking.deleteMany({ where: { groupClass: { gymId: gym.id } } })
   await prisma.groupClass.deleteMany({ where: { gymId: gym.id } })
@@ -96,9 +176,17 @@ async function main() {
   await prisma.inventoryCount.deleteMany({ where: { gymId: gym.id } })
   await prisma.stockBatch.deleteMany({ where: { gymId: gym.id } })
   await prisma.catalogItem.deleteMany({ where: { gymId: gym.id } })
+  await prisma.equipment.deleteMany({ where: { gymId: gym.id } })
+  await prisma.cleaningChecklistItem.deleteMany({ where: { checklist: { gymId: gym.id } } })
+  await prisma.cleaningChecklist.deleteMany({ where: { gymId: gym.id } })
+  await prisma.cleaningZone.deleteMany({ where: { gymId: gym.id } })
+  await prisma.checkinEntry.deleteMany({ where: { gymId: gym.id } })
   await prisma.lead.deleteMany({ where: { gymId: gym.id } })
-  await prisma.client.deleteMany({ where: { gymId: gym.id } })
-  await prisma.trainer.deleteMany({ where: { gymId: gym.id } })
+  // Карточки демо-учёток (клиент/тренер с привязанным User) не трогаем —
+  // иначе ломаются логины из seed.ts; тестовым карточкам ниже только
+  // докидываем недостающие данные.
+  await prisma.client.deleteMany({ where: { gymId: gym.id, userId: null } })
+  await prisma.trainer.deleteMany({ where: { gymId: gym.id, userId: null } })
 
   const trainers: Trainer[] = []
   for (const t of TRAINER_DEFS) {
@@ -110,6 +198,12 @@ async function main() {
         workHours: { create: t.hours.map((h) => ({ day: h[0], startHour: h[1], endHour: h[2] })) },
       },
     }))
+  }
+  const testTrainer = await prisma.trainer.findFirst({ where: { gymId: gym.id, userId: { not: null } } })
+  if (testTrainer && (await prisma.trainerWorkHour.count({ where: { trainerId: testTrainer.id } })) === 0) {
+    await prisma.trainerWorkHour.createMany({
+      data: [[1, 10, 19], [3, 10, 19], [5, 10, 18]].map((h) => ({ trainerId: testTrainer.id, day: h[0], startHour: h[1], endHour: h[2] })),
+    })
   }
 
   const names: string[] = []
@@ -158,30 +252,46 @@ async function main() {
       include: { membership: true },
     }))
   }
+  // Демо-клиент из seed.ts: если карточка без абонемента — выдаём месячный,
+  // чтобы у тестового логина были и профиль, и покупки.
+  let testClient = await prisma.client.findFirst({ where: { gymId: gym.id, userId: { not: null } }, include: { membership: true } })
+  if (testClient && !testClient.membership) {
+    testClient = await prisma.client.update({
+      where: { id: testClient.id },
+      data: { membership: { create: { type: 'MONTHLY', scope: 'SINGLE_GYM', purchasedAt: dayAt(-12), expiresAt: dayAt(18), status: 'ACTIVE' } } },
+      include: { membership: true },
+    })
+  }
+  if (testClient) clients.push(testClient)
 
-  const txRows: Array<{ gymId: string; date: Date; amount: number; category: 'MEMBERSHIP' | 'PERSONAL' | 'GROUP' | 'ANCILLARY' | 'REFUND'; clientId: string; trainerId?: string; description: string }> = []
+  // --- Покупки: каждая превращается в PAID-заказ с чеком (P0.2) и связанную
+  // транзакцию — деньги в демо «приняты через кассу», как в реальном flow.
+  const purchases: Purchase[] = []
   for (const c of clients) {
     if (c.membership) {
-      txRows.push({
-        gymId: gym.id, date: c.membership.purchasedAt, amount: MEMBERSHIP_PRICE[c.membership.type],
-        category: 'MEMBERSHIP', clientId: c.id,
-        description: `Покупка абонемента (${MEMBERSHIP_LABEL[c.membership.type]})`,
+      purchases.push({
+        date: c.membership.purchasedAt, amount: MEMBERSHIP_PRICE[c.membership.type], category: 'MEMBERSHIP',
+        clientId: c.id, description: `Покупка абонемента (${MEMBERSHIP_LABEL[c.membership.type]})`,
+        lineType: 'MEMBERSHIP_PURCHASE', meta: { membershipType: c.membership.type, scope: 'SINGLE_GYM' },
       })
     }
     if (c.format === 'PERSONAL' && c.trainerId) {
-      txRows.push({
-        gymId: gym.id, date: dayAt(-ri(2, 30)), amount: clients.indexOf(c) % 3 === 0 ? 2200 : 9000,
-        category: 'PERSONAL', clientId: c.id, trainerId: c.trainerId,
-        description: clients.indexOf(c) % 3 === 0 ? 'Персональная тренировка (разовая)' : 'Пакет 5 персональных тренировок',
+      const single = clients.indexOf(c) % 3 === 0
+      purchases.push({
+        date: dayAt(-ri(2, 30)), amount: single ? 2200 : 9000, category: 'PERSONAL',
+        clientId: c.id, trainerId: c.trainerId,
+        description: single ? 'Персональная тренировка (разовая)' : 'Пакет 5 персональных тренировок',
+        lineType: 'PERSONAL_SLOT_BOOKING', refId: c.trainerId, meta: { trainerId: c.trainerId, sessions: single ? 1 : 5 },
       })
     }
     if (c.format === 'GROUP' && c.trainerId) {
-      txRows.push({
-        gymId: gym.id, date: dayAt(-ri(2, 30)), amount: 3500, category: 'GROUP', clientId: c.id,
-        description: 'Групповые занятия, месяц',
+      purchases.push({
+        date: dayAt(-ri(2, 30)), amount: 3500, category: 'GROUP', clientId: c.id,
+        description: 'Групповые занятия, месяц', lineType: 'GROUP_CLASS_BOOKING',
       })
     }
   }
+
   const catalog: CatalogItem[] = []
   for (const [name, category, price, emoji, shelfQty, whQty] of CATALOG) {
     const item = await prisma.catalogItem.create({ data: { gymId: gym.id, name, category, price, emoji } })
@@ -195,14 +305,61 @@ async function main() {
   }
   for (let i = 0; i < 24; i++) {
     const item = pick(catalog)
-    txRows.push({ gymId: gym.id, date: dayAt(-ri(0, 29)), amount: item.price, category: 'ANCILLARY', clientId: pick(clients).id, description: `Покупка: ${item.name}` })
+    purchases.push({
+      date: dayAt(-ri(0, 29)), amount: item.price, category: 'ANCILLARY', clientId: pick(clients).id,
+      description: `Покупка: ${item.name}`, lineType: 'STOCK_PURCHASE', refId: item.id, meta: { itemId: item.id },
+    })
   }
-  txRows.push({ gymId: gym.id, date: dayAt(-9), amount: -4500, category: 'REFUND', clientId: clients[3].id, description: 'Возврат абонемента по заявке клиента' })
-  await prisma.transaction.createMany({ data: txRows })
 
-  // Демо-проходы через контроль доступа (P2.2): последние две недели,
-  // только клиенты с действующим абонементом (отказы прохода в журнале
-  // не живут — там одни успешные сканы).
+  let receiptSeq = 0
+  for (const p of purchases) {
+    receiptSeq++
+    const receipt = receiptRawFor(p.amount, receiptSeq, p.date)
+    const order = await prisma.order.create({
+      data: {
+        gymId: gym.id, clientId: p.clientId, createdBy: cashier.id,
+        status: 'PAID', paymentMethod: 'CASH', totalAmount: p.amount,
+        ...receipt, receiptDate: p.date, paidAt: p.date, createdAt: p.date,
+        lines: { create: { type: p.lineType, refId: p.refId ?? null, amount: p.amount, meta: (p.meta ?? {}) as object } },
+      },
+    })
+    await prisma.transaction.create({
+      data: { gymId: gym.id, date: p.date, amount: p.amount, category: p.category, clientId: p.clientId, trainerId: p.trainerId, description: p.description, orderId: order.id },
+    })
+  }
+  await prisma.transaction.create({
+    data: { gymId: gym.id, date: dayAt(-9), amount: -4500, category: 'REFUND', clientId: clients[3].id, description: 'Возврат абонемента по заявке клиента' },
+  })
+
+  // --- Документы склада: приход (включая пополнение витрины) и списания.
+  for (const item of catalog) {
+    const [, , , , shelfQty, whQty] = CATALOG[catalog.indexOf(item)]
+    await prisma.stockReceipt.create({ data: { gymId: gym.id, catalogItemId: item.id, location: 'WAREHOUSE', quantity: shelfQty + whQty + 6, date: dayAt(-25), authorId: cashier.id } })
+    await prisma.stockReceipt.create({ data: { gymId: gym.id, catalogItemId: item.id, location: 'SHELF', quantity: shelfQty, date: dayAt(-10), authorId: cashier.id } })
+  }
+  const writeoffDefs: Array<[number, 'EXPIRED' | 'DAMAGED' | 'USED_INTERNALLY' | 'LOST', string | null]> = [
+    [0, 'EXPIRED', 'Партия с истёкшим сроком, витрина'],
+    [3, 'DAMAGED', 'Повреждена упаковка при транспортировке'],
+    [6, 'DAMAGED', null],
+    [9, 'USED_INTERNALLY', 'Выдано тренерам после смены'],
+    [10, 'LOST', 'Недостача по инвентаризации'],
+    [1, 'EXPIRED', null],
+  ]
+  for (const [idx, reason, comment] of writeoffDefs) {
+    await prisma.stockWriteoff.create({
+      data: { gymId: gym.id, catalogItemId: catalog[idx].id, location: idx % 2 === 0 ? 'SHELF' : 'WAREHOUSE', quantity: ri(1, 3), reason, comment, date: dayAt(-ri(2, 20)), authorId: cashier.id },
+    })
+  }
+  const inventoryCount = await prisma.inventoryCount.create({ data: { gymId: gym.id, date: dayAt(-3), authorId: cashier.id } })
+  const inventoryEntries: Array<{ inventoryCountId: string; catalogItemId: string; location: 'SHELF' | 'WAREHOUSE'; systemQty: number; countedQty: number }> = []
+  for (const [idx, item] of catalog.entries()) {
+    const shelfQty = CATALOG[idx][4]
+    inventoryEntries.push({ inventoryCountId: inventoryCount.id, catalogItemId: item.id, location: 'SHELF', systemQty: shelfQty, countedQty: idx % 4 === 0 ? shelfQty - 1 : shelfQty })
+    if (idx < 3) inventoryEntries.push({ inventoryCountId: inventoryCount.id, catalogItemId: item.id, location: 'WAREHOUSE', systemQty: CATALOG[idx][5], countedQty: CATALOG[idx][5] })
+  }
+  await prisma.inventoryCountEntry.createMany({ data: inventoryEntries })
+
+  // --- Демо-проходы через контроль доступа (P2.2): последние две недели.
   const checkinRows: Array<{ gymId: string; clientId: string; at: Date; source: 'QR' | 'MANUAL' }> = []
   const activeMembers = clients.filter((c) => c.membership?.status === 'ACTIVE')
   for (let i = 0; i < 18; i++) {
@@ -216,10 +373,7 @@ async function main() {
   checkinRows.sort((a, b) => a.at.getTime() - b.at.getTime())
   await prisma.checkinEntry.createMany({ data: checkinRows })
 
-  // Шкафчики (P2.8): 24 штуки двумя банками (рядами) по 12, каждый ряд на
-  // своём контроллере (каналы 1-12). Точка в демо остаётся в ручном
-  // режиме (lockerMode=manual) — поля оборудования заполнены, чтобы
-  // переключение на centralized_kiosk не требовало правки данных.
+  // Шкафчики (P2.8): 24 штуки двумя банками по 12.
   const lockerRows: Array<{
     gymId: string; number: number; status: 'FREE' | 'RENTED'; pricePerDay: number;
     bankId: string; controllerId: string; channelNumber: number; doorState: 'OPEN' | 'CLOSED';
@@ -308,8 +462,48 @@ async function main() {
   })
   await prisma.workoutLogEntry.createMany({ data: logs })
 
-  // Гостевые карточки (лиды) — P2.6: воронка «пришёл узнать → попробовал →
-  // купил». Часть уже сконвертирована в клиентов, часть потеряна.
+  // --- Наполнение тренировок упражнениями и подходами из библиотеки точки.
+  const exercises = await prisma.exercise.findMany({ where: { gymId: gym.id } })
+  if (exercises.length) {
+    const logStatus = new Map(logs.map((l) => [`${l.clientId}|${l.date.getTime()}`, l.status]))
+    const createdLogs = await prisma.workoutLogEntry.findMany({ where: { client: { gymId: gym.id } }, orderBy: [{ clientId: 'asc' }, { date: 'asc' }] })
+    const exLogRows: Array<{ logId: string; exerciseId: string }> = []
+    createdLogs.forEach((log, li) => {
+      const status = logStatus.get(`${log.clientId}|${new Date(log.date).getTime()}`) ?? 'COMPLETED'
+      if (status === 'MISSED') return
+      const exCount = status === 'PARTIAL' ? 2 : 3
+      for (let k = 0; k < exCount; k++) {
+        const ex = exercises[(li * 3 + k * 29 + 11) % exercises.length]
+        exLogRows.push({ logId: log.id, exerciseId: ex.id })
+      }
+    })
+    await prisma.workoutExerciseLog.createMany({ data: exLogRows })
+    const partialLogIds = new Set(
+      createdLogs
+        .filter((log) => (logStatus.get(`${log.clientId}|${new Date(log.date).getTime()}`) ?? 'COMPLETED') === 'PARTIAL')
+        .map((log) => log.id),
+    )
+    const exById = new Map(exercises.map((e) => [e.id, e]))
+    const setRows: Array<{ exerciseLogId: string; reps: string; load: string; completed: boolean; effort: 'WARMUP' | 'EASY' | 'MEDIUM' | 'HARD' | 'VERY_HARD'; restSeconds: number }> = []
+    const createdExLogs = await prisma.workoutExerciseLog.findMany({ where: { log: { client: { gymId: gym.id } } } })
+    createdExLogs.forEach((exLog, ei) => {
+      const ex = exById.get(exLog.exerciseId)
+      const isPartial = partialLogIds.has(exLog.logId)
+      for (let s = 0; s < 3; s++) {
+        setRows.push({
+          exerciseLogId: exLog.id,
+          reps: ex?.defaultReps ?? '10-12',
+          load: ex?.defaultLoad ?? '40 кг',
+          completed: !(isPartial && s === 2),
+          effort: EFFORTS[(ei + s) % EFFORTS.length],
+          restSeconds: RESTS[(ei + s) % RESTS.length],
+        })
+      }
+    })
+    await prisma.workoutSetLog.createMany({ data: setRows })
+  }
+
+  // Гостевые карточки (лиды) — P2.6.
   const leadDefs: Array<{ name: string; phone: string; offset: number; status: 'NEW' | 'VISITED' | 'CONVERTED' | 'LOST'; note?: string }> = [
     { name: 'Артём Гуров', phone: '+7 913 000-11-22', offset: 2, status: 'NEW', note: 'Пришёл из Instagram, интересуется силовыми' },
     { name: 'Кристина Лебедева', phone: '+7 913 000-33-44', offset: 1, status: 'NEW' },
@@ -329,19 +523,60 @@ async function main() {
     })
   }
 
+  // --- Клининг: зоны + чек-листы за последнюю неделю (сегодняшний частично
+  // не выполнен — видно «живую» смену).
+  const zoneIds: string[] = []
+  for (const [idx, zoneName] of CLEANING_ZONE_NAMES.entries()) {
+    const zone = await prisma.cleaningZone.create({ data: { gymId: gym.id, name: zoneName, position: idx } })
+    zoneIds.push(zone.id)
+  }
+  let checklistsCreated = 0
+  for (let offset = -6; offset <= 0; offset++) {
+    const responsible = STAFF_DEFS[(offset + 6) % STAFF_DEFS.length].name
+    const checklist = await prisma.cleaningChecklist.create({ data: { gymId: gym.id, date: dayAt(offset), responsibleName: responsible } })
+    const undoneCount = offset <= -2 ? 0 : offset === -1 ? 1 : 3
+    await prisma.cleaningChecklistItem.createMany({
+      data: zoneIds.map((zoneId, idx) => ({ checklistId: checklist.id, zoneId, done: idx < zoneIds.length - undoneCount })),
+    })
+    checklistsCreated++
+  }
+
+  // --- Объекты ремонта (ППР).
+  for (const eq of EQUIPMENT_DEFS) {
+    await prisma.equipment.create({
+      data: {
+        gymId: gym.id, name: eq.name, category: eq.category, zone: eq.zone,
+        responsibleName: eq.responsible,
+        lastServiceDate: dayAt(eq.lastOff), nextServiceDate: dayAt(eq.nextOff),
+        intervalDays: eq.interval, warrantyUntil: eq.warrantyOff != null ? dayAt(eq.warrantyOff) : null,
+      },
+    })
+  }
+
   console.log(JSON.stringify({
-    gym: gym.name,
+    gym: `${gym.name} (${gym.id})`,
+    staffUsers: staffUsers.length,
     trainers: await prisma.trainer.count({ where: { gymId: gym.id } }),
     clients: await prisma.client.count({ where: { gymId: gym.id } }),
     memberships: await prisma.membership.count({ where: { client: { gymId: gym.id } } }),
+    orders: await prisma.order.count({ where: { gymId: gym.id } }),
+    transactions: await prisma.transaction.count({ where: { gymId: gym.id } }),
     catalogItems: catalog.length,
     stockBatches: await prisma.stockBatch.count({ where: { gymId: gym.id } }),
-    transactions: txRows.length,
+    stockReceipts: await prisma.stockReceipt.count({ where: { gymId: gym.id } }),
+    stockWriteoffs: await prisma.stockWriteoff.count({ where: { gymId: gym.id } }),
+    inventoryCounts: await prisma.inventoryCount.count({ where: { gymId: gym.id } }),
     groupClasses: classCounter,
     personalSlots: await prisma.personalSlot.count({ where: { gymId: gym.id } }),
     workoutLogs: logs.length,
-    leads: leadDefs.length,
+    workoutExerciseLogs: await prisma.workoutExerciseLog.count({ where: { log: { client: { gymId: gym.id } } } }),
+    workoutSetLogs: await prisma.workoutSetLog.count({ where: { exerciseLog: { log: { client: { gymId: gym.id } } } } }),
+    checkins: checkinRows.length,
     lockers: lockerRows.length,
+    leads: leadDefs.length,
+    cleaningZones: zoneIds.length,
+    cleaningChecklists: checklistsCreated,
+    equipment: EQUIPMENT_DEFS.length,
   }, null, 1))
 }
 
