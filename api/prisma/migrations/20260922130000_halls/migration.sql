@@ -56,6 +56,6 @@ ALTER TABLE "hall_prices" ADD CONSTRAINT "hall_prices_hall_id_fkey" FOREIGN KEY 
 -- BackfillData
 -- Точка без зала существовать не может: каждой существующей точке
 -- создаётся дефолтный тренажёрный зал (заявка клуба).
-INSERT INTO "halls" ("id", "gym_id", "name", "kind")
-SELECT 'hall_def_' || "id", "id", 'Тренажерный зал', 'Тренажерный зал'
+INSERT INTO "halls" ("id", "gym_id", "name", "kind", "updated_at")
+SELECT 'hall_def_' || "id", "id", 'Тренажерный зал', 'Тренажерный зал', CURRENT_TIMESTAMP
 FROM "gyms";
